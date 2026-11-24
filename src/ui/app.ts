@@ -1,5 +1,8 @@
 import QRCode from 'qrcode';
+import type { PublicState } from '../core/engine';
 import type { Session } from '../net/session';
+import { captureChips, createAnnouncer, dealCards, playChipMoves, pop } from './effects';
+import { diffEvents } from './events';
 import { type Ctx, cards, header, historyTable, lobby, matchEnd, persistPrompt, persistWindow, pickLadder, showdownView, swapView } from './render';
 import { roomUrl } from './room';
 
@@ -17,8 +20,13 @@ const REFRESH_MS = 100;
  * Each area re-renders only when its HTML changes, so inputs keep focus and the slider keeps its drag.
  */
 export function mountGame(root: HTMLElement, session: Session, code: string): void {
-  root.innerHTML = '<header id="hdr"></header><main id="main"></main><div id="overlay"></div>';
+  root.innerHTML =
+    '<header id="hdr"></header><div id="ticker"></div><main id="main"></main><div id="announce" aria-live="polite"></div><div id="overlay"></div>';
   const hdr = root.querySelector<HTMLElement>('#hdr')!;
+  const announcer = createAnnouncer(root.querySelector<HTMLElement>('#announce')!, root.querySelector<HTMLElement>('#ticker')!);
+  // What the screen showed last time. Effects play only for the parts that changed.
+  const fx = { phase: '', hand: 0, board: 0, locked: new Set<string>() };
+  let lastPub: PublicState | null = null;
   const main = root.querySelector<HTMLElement>('#main')!;
   const overlay = root.querySelector<HTMLElement>('#overlay')!;
   const url = roomUrl(code);
@@ -66,7 +74,8 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
           : v.pub.phase === 'MATCH_END'
             ? matchEnd(ctx)
             : cards(ctx) + (v.pub.phase === 'SWAP' ? swapView(ctx, now) : pickLadder(ctx)) + historyTable(ctx);
-    set(main, body);
+    const before = captureChips(main);
+    if (set(main, body)) playEffects(v.pub, before);
     const slot = main.querySelector('#qr-slot');
     if (slot && !slot.contains(qr)) slot.append(qr);
 
@@ -80,6 +89,28 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
       if (slider) slider.value = String(Math.round(ui.slider * 1000));
     }
     updateCountdowns();
+  };
+
+  const playEffects = (pub: PublicState, before: Map<string, DOMRect>) => {
+    if (pub.phase !== fx.phase) {
+      main.classList.remove('phase-in');
+      void main.offsetWidth;
+      main.classList.add('phase-in');
+    }
+    playChipMoves(main, before);
+    const atTable = pub.phase === 'PICK' || pub.phase === 'PERSIST' || pub.phase === 'SWAP';
+    if (atTable && pub.handNo !== fx.hand) {
+      dealCards(main.querySelectorAll('.hole .card'));
+      dealCards(main.querySelectorAll('.board .card'), 300);
+    } else if (atTable && pub.board.length > fx.board) {
+      dealCards([...main.querySelectorAll('.board .card')].slice(fx.board));
+    }
+    const locked = new Set(Object.entries(pub.picks).filter(([, p]) => p.locked).map(([id]) => id));
+    if (pub.phase === 'PICK') for (const id of locked) if (!fx.locked.has(id)) pop(main.querySelector(`.ladder [data-pid="${id}"]`));
+    fx.phase = pub.phase;
+    fx.hand = atTable ? pub.handNo : fx.hand;
+    fx.board = pub.board.length;
+    fx.locked = locked;
   };
 
   const updateCountdowns = () => {
@@ -145,7 +176,14 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
     if (el.dataset.act === 'swapSeconds') session.act({ type: 'settings', settings: { swapSeconds: Number(el.value) } });
   });
 
-  session.subscribe(render);
+  session.subscribe(() => {
+    const pub = session.view?.pub ?? null;
+    if (pub && pub !== lastPub) {
+      announcer.push(diffEvents(lastPub, pub, session.me));
+      lastPub = pub;
+    }
+    render();
+  });
   // Re-render on a timer too: countdowns move, and some buttons depend on the time.
   setInterval(render, REFRESH_MS);
   window.addEventListener('pagehide', () => session.close());

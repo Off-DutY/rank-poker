@@ -26,6 +26,15 @@ export interface Ctx {
 
 const nameOf = (pub: PublicState, id: PlayerId) => esc(pub.seats.find((s) => s.id === id)?.name ?? '?');
 const ROUND_NAMES = ['', '翻牌前', '翻牌', '轉牌', '河牌'];
+const STAGE_NAMES: Record<string, string> = { PICK: '選名次', PERSIST: '執著度對決', SWAP: '交換名次' };
+
+/** Seconds between 2 rows in the showdown reveal. */
+export const REVEAL_STEP_S = 0.8;
+
+/** Returns the time in seconds when the showdown reveal ends, for `n` players. */
+export function revealEnd(n: number): number {
+  return n * REVEAL_STEP_S + 0.6;
+}
 
 /** Renders a countdown bar. The app fills in the time every frame. */
 export function countdown(deadline: number | null, totalMs: number): string {
@@ -43,10 +52,26 @@ export function header(ctx: Ctx, code: string): string {
         ? `第 ${pub.handNo} 局・攤牌`
         : pub.phase === 'MATCH_END'
           ? '本場結束'
-          : `第 ${pub.handNo} 局・${ROUND_NAMES[pub.round]}`;
-  return `<div class="room">房號 <b>${code}</b></div>
+          : `第 ${pub.handNo} 局・${ROUND_NAMES[pub.round]}・${STAGE_NAMES[pub.phase]}`;
+  // In the showdown, the score changes only after the reveal ends, so it does not spoil the result.
+  const late = pub.phase === 'SHOWDOWN' ? ` late" style="--done:${revealEnd(pub.seats.length)}s` : '';
+  return `<div class="hdr-row"><div class="room">房號 <b>${code}</b></div>
     <div class="step">${step}</div>
-    <div class="score"><span class="win">勝 ${pub.score.wins}</span> / <span class="lose">敗 ${pub.score.losses}</span></div>`;
+    <div class="score${late}"><span class="win">勝 ${pub.score.wins}</span> / <span class="lose">敗 ${pub.score.losses}</span></div></div>
+    ${stepper(pub)}`;
+}
+
+/** Renders the hand progress: 4 rounds and the showdown. Empty outside a hand. */
+function stepper(pub: PublicState): string {
+  if (pub.phase === 'LOBBY' || pub.phase === 'MATCH_END') return '';
+  const current = pub.phase === 'SHOWDOWN' ? 5 : pub.round;
+  const names = [...ROUND_NAMES.slice(1), '攤牌'];
+  const steps = names.map((label, i) => {
+    const n = i + 1;
+    const cls = n < current ? 'done' : n === current ? 'now' : '';
+    return `<li class="${cls}"><span class="dot"></span><span class="txt">${label}</span></li>`;
+  });
+  return `<ol class="stepper">${steps.join('')}</ol>`;
 }
 
 /** Renders the lobby: player list, settings and the start button. */
@@ -125,7 +150,7 @@ function chip(ctx: Ctx, id: PlayerId, extra = '', attrs = '', showLast = false):
   const tag = attrs ? 'button' : 'span';
   const last = showLast ? lastRank(ctx.pub, id) : null;
   const badge = last == null ? '' : `<small class="prev" title="上一輪名次">前 ${last}</small>`;
-  return `<${tag} class="${cls}" ${attrs}>${nameOf(ctx.pub, id)}${badge}</${tag}>`;
+  return `<${tag} class="${cls}" data-pid="${id}" ${attrs}>${nameOf(ctx.pub, id)}${badge}</${tag}>`;
 }
 
 /**
@@ -307,7 +332,7 @@ export function showdownView(ctx: Ctx): string {
   const ids = pub.seats.map((s) => s.id).filter((id) => sd.entries[id]);
   const byRank = ids.slice().sort((a, b) => sd.ranks[a]! - sd.ranks[b]!);
   const rows = byRank
-    .map((id) => {
+    .map((id, i) => {
       const e = sd.entries[id]!;
       // Valid ranks for a player: after all weaker hands, up to the last equal hand.
       const weaker = ids.filter((x) => sd.entries[x]!.score < e.score).length;
@@ -315,16 +340,20 @@ export function showdownView(ctx: Ctx): string {
       const r = sd.ranks[id]!;
       const ok = r > weaker && r <= notStronger;
       const truth = weaker + 1 === notStronger ? `${notStronger}` : `${weaker + 1}–${notStronger}`;
-      return `<tr class="${ok ? 'ok' : 'bad'}${id === ctx.me ? ' me' : ''}"><td class="num rank-cell">${r}${rankHint(r, ids.length)}</td><td>${nameOf(pub, id)}</td>
-        <td class="hand">${e.hole.map(card).join('')}</td><td>${e.category}</td><td class="num">${truth}</td><td>${ok ? '✓' : '✗'}</td></tr>`;
+      // Rank and name show at once. Cards, hand and verdict open row by row, from rank 1 up.
+      return `<tr class="${ok ? 'ok' : 'bad'}${id === ctx.me ? ' me' : ''}" style="--i:${i}"><td class="num rank-cell">${r}${rankHint(r, ids.length)}</td><td>${nameOf(pub, id)}</td>
+        <td class="hand reveal flip">${e.hole.map(card).join('')}</td><td class="reveal">${e.category}</td><td class="num reveal">${truth}</td><td class="reveal verdict">${ok ? '✓' : '✗'}</td></tr>`;
     })
     .join('');
   const nextLabel = pub.matchOver ? '查看結果' : '下一局';
-  return `<div class="result ${sd.success ? 'ok' : 'bad'}">${sd.success ? '成功！排序完全正確' : '失敗，排序有錯'}</div>
+  const done = `style="--done:${revealEnd(ids.length)}s"`;
+  return `<div class="result-slot" ${done}><div class="result pending">比對中…</div>
+      <div class="result final ${sd.success ? 'ok' : 'bad'}">${sd.success ? '成功！排序完全正確' : '失敗，排序有錯'}</div></div>
     <div class="board">${pub.board.map(card).join('')}</div>
     <table class="showdown"><thead><tr><th>名次</th><th>玩家</th><th>手牌</th><th>牌型</th><th>正解</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+    <div class="after-reveal" ${done}>
     ${historyTable(ctx)}
-    ${isHost ? `<button class="primary big" data-act="next">${nextLabel}</button>` : '<p class="hint center">等待房主繼續…</p>'}`;
+    ${isHost ? `<button class="primary big" data-act="next">${nextLabel}</button>` : '<p class="hint center">等待房主繼續…</p>'}</div>`;
 }
 
 /**
