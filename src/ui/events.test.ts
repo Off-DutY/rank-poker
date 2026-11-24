@@ -14,7 +14,7 @@ class Run {
     this.s = createGame('P0', 'A');
     this.do('P1', { type: 'join', name: 'B' });
     this.do('P2', { type: 'join', name: 'C' });
-    this.do('P0', { type: 'settings', settings });
+    this.do('P0', { type: 'settings', settings: { introSeconds: 0, ...settings } });
   }
 
   do(id: string, a: PlayerAction): void {

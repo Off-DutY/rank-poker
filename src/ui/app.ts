@@ -1,8 +1,9 @@
 import QRCode from 'qrcode';
-import type { PublicState } from '../core/engine';
+import type { NotifyStyle, PublicState } from '../core/engine';
 import type { Session } from '../net/session';
 import { captureChips, createAnnouncer, dealCards, playChipMoves, pop } from './effects';
-import { diffEvents } from './events';
+import { type Announcement, diffEvents } from './events';
+import { unlockAudio } from './sound';
 import { type Ctx, cards, header, historyTable, lobby, matchEnd, persistPrompt, persistWindow, pickLadder, showdownView, swapView } from './render';
 import { roomUrl } from './room';
 
@@ -23,7 +24,9 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
   root.innerHTML =
     '<header id="hdr"></header><div id="ticker"></div><main id="main"></main><div id="announce" aria-live="polite"></div><div id="overlay"></div>';
   const hdr = root.querySelector<HTMLElement>('#hdr')!;
-  const announcer = createAnnouncer(root.querySelector<HTMLElement>('#announce')!, root.querySelector<HTMLElement>('#ticker')!);
+  const announcer = createAnnouncer(root.querySelector<HTMLElement>('#announce')!, root.querySelector<HTMLElement>('#ticker')!, () =>
+    session.hostNow(),
+  );
   // What the screen showed last time. Effects play only for the parts that changed.
   const fx = { phase: '', hand: 0, board: 0, locked: new Set<string>() };
   let lastPub: PublicState | null = null;
@@ -76,10 +79,14 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
             : cards(ctx) + (v.pub.phase === 'SWAP' ? swapView(ctx, now) : pickLadder(ctx)) + historyTable(ctx);
     const before = captureChips(main);
     if (set(main, body)) playEffects(v.pub, before);
+    // During the intro pause the host ignores actions, so the controls look paused too.
+    const inIntro = v.pub.startsAt != null && now < v.pub.startsAt;
+    main.classList.toggle('intro', inIntro);
     const slot = main.querySelector('#qr-slot');
     if (slot && !slot.contains(qr)) slot.append(qr);
 
-    const prompt = persistPrompt(ctx);
+    // The persistence window opens when the intro ends, so players see the whole 10 seconds.
+    const prompt = inIntro ? null : persistPrompt(ctx);
     if (prompt && prompt.key !== ui.promptKey) {
       ui.promptKey = prompt.key;
       ui.slider = 0;
@@ -118,9 +125,14 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
     for (const el of root.querySelectorAll<HTMLElement>('.countdown')) {
       const left = Math.max(0, Number(el.dataset.deadline) - now);
       const total = Number(el.dataset.total) || 1;
+      // Time above the phase length is the intro pause: the countdown has not started yet.
+      const waiting = left > total;
       el.querySelector<HTMLElement>('.bar')!.style.width = `${Math.min(100, (left / total) * 100)}%`;
-      el.querySelector<HTMLElement>('.secs')!.textContent = `${Math.ceil(left / 1000)}`;
-      el.classList.toggle('urgent', left < 5_000);
+      el.querySelector<HTMLElement>('.secs')!.textContent = waiting
+        ? `${Math.ceil(total / 1000)} 秒・${Math.ceil((left - total) / 1000)} 秒後開始`
+        : `${Math.ceil(left / 1000)}`;
+      el.classList.toggle('waiting', waiting);
+      el.classList.toggle('urgent', !waiting && left < 5_000);
     }
   };
 
@@ -137,6 +149,12 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
         break;
       case 'mode':
         session.act({ type: 'settings', settings: { persistenceMode: d.mode === 'free' ? 'free' : 'budget' } });
+        break;
+      case 'toggle':
+        if (d.key === 'sound' || d.key === 'vibrate') session.act({ type: 'settings', settings: { [d.key]: d.on !== '1' } });
+        break;
+      case 'preview':
+        previewNotify();
         break;
       case 'start':
       case 'lock':
@@ -173,17 +191,42 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
 
   root.addEventListener('change', (e) => {
     const el = e.target as HTMLSelectElement;
-    if (el.dataset.act === 'swapSeconds') session.act({ type: 'settings', settings: { swapSeconds: Number(el.value) } });
+    const act = el.dataset.act;
+    if (act === 'swapSeconds' || act === 'introSeconds') session.act({ type: 'settings', settings: { [act]: Number(el.value) } });
+    if (act === 'notifyStyle') session.act({ type: 'settings', settings: { notifyStyle: el.value as NotifyStyle } });
   });
+
+  const notifyOptions = (pub: PublicState) => ({
+    style: pub.settings.notifyStyle,
+    sound: pub.settings.sound,
+    vibrate: pub.settings.vibrate,
+  });
+
+  /** Shows a sample phase start with the current settings, on this device only. */
+  const previewNotify = () => {
+    const pub = session.view?.pub;
+    if (!pub) return;
+    const sample: Announcement[] = [
+      { kind: 'conflict', title: '衝突結果', lines: ['玩家B：選 2 → 移到 1'] },
+      { kind: 'info', title: '翻牌：發出 3 張公牌', lines: ['重新選擇名次'] },
+    ];
+    const intro = pub.settings.introSeconds;
+    announcer.push(sample, intro > 0 ? session.hostNow() + intro * 1000 : null, notifyOptions(pub), true);
+  };
 
   session.subscribe(() => {
     const pub = session.view?.pub ?? null;
     if (pub && pub !== lastPub) {
-      announcer.push(diffEvents(lastPub, pub, session.me));
+      const items = diffEvents(lastPub, pub, session.me);
+      // A new intro pause means a timed phase starts: keep its announcements up until the timer starts.
+      const until = pub.startsAt != null && pub.startsAt !== lastPub?.startsAt && pub.startsAt > session.hostNow() ? pub.startsAt : null;
+      if (items.length) announcer.push(items, until, notifyOptions(pub));
       lastPub = pub;
     }
     render();
   });
+  // Browsers allow sound only after a user gesture.
+  root.addEventListener('pointerdown', unlockAudio);
   // Re-render on a timer too: countdowns move, and some buttons depend on the time.
   setInterval(render, REFRESH_MS);
   window.addEventListener('pagehide', () => session.close());

@@ -1,5 +1,5 @@
 import type { Card } from '../core/cards';
-import type { PlayerId, PrivateState, PublicState, PublicSwapRequest, Seat } from '../core/engine';
+import type { NotifyStyle, PlayerId, PrivateState, PublicState, PublicSwapRequest, Seat } from '../core/engine';
 
 /** Escapes text for HTML. All player-provided text must go through it (spec 11). */
 export function esc(s: string): string {
@@ -108,7 +108,36 @@ export function lobby(ctx: Ctx, url: string): string {
         .map((s) => `<option value="${s}"${pub.settings.swapSeconds === s ? ' selected' : ''}>${s === 0 ? '不交換' : `${s} 秒`}</option>`)
         .join('')}</select>
     </section>
+    <section class="panel">
+      <h2>提示方式</h2>
+      <div class="label">提示樣式</div>
+      <select data-act="notifyStyle" ${isHost ? '' : 'disabled'}>${NOTIFY_OPTIONS.map(
+        ([v, label]) => `<option value="${v}"${pub.settings.notifyStyle === v ? ' selected' : ''}>${label}</option>`,
+      ).join('')}</select>
+      <div class="label">過場時間（提示期間暫停倒數）</div>
+      <select data-act="introSeconds" ${isHost ? '' : 'disabled'}>${[0, 2, 3, 5]
+        .map((v) => `<option value="${v}"${pub.settings.introSeconds === v ? ' selected' : ''}>${v === 0 ? '不暫停（提示與倒數同時開始）' : `${v} 秒`}</option>`)
+        .join('')}</select>
+      <div class="toggles">
+        ${toggle('sound', '音效', pub.settings.sound, isHost)}
+        ${toggle('vibrate', '震動', pub.settings.vibrate, isHost)}
+      </div>
+      <p class="hint">震動只在支援的手機有效（iPhone 不支援）。音效需要先點過畫面才會播放。</p>
+      <button data-act="preview">在我的裝置預覽提示</button>
+    </section>
     ${isHost ? `<button class="primary big" data-act="start" ${n < 3 ? 'disabled' : ''}>開始遊戲</button>` : '<p class="hint center">等待房主開始遊戲…</p>'}`;
+}
+
+const NOTIFY_OPTIONS: [NotifyStyle, string][] = [
+  ['fullscreen', '全螢幕過場：每個階段開始時蓋住畫面'],
+  ['banner', '上方橫幅'],
+  ['toast', '底部提示條'],
+  ['ticker', '只顯示文字列：不跳出視窗'],
+];
+
+function toggle(key: string, label: string, on: boolean, enabled: boolean): string {
+  return `<button class="mode${on ? ' on' : ''}" data-act="toggle" data-key="${key}" data-on="${on ? 1 : 0}" ${enabled ? '' : 'disabled'}>
+    <b>${label}</b><small>${on ? '開' : '關'}</small></button>`;
 }
 
 function seatItem(ctx: Ctx, s: Seat): string {

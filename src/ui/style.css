@@ -212,18 +212,39 @@ button.chip { border-color: var(--gold); }
 .tick-kind.swap { background: var(--gold); }
 .tick-kind.result { background: var(--ok); }
 
-/* Announcement banner */
-#announce { position: fixed; left: 0; right: 0; top: 18%; display: flex; justify-content: center; padding: 0 16px; pointer-events: none; z-index: 20; opacity: 0; }
-#announce.show { animation: announceIn 0.35s cubic-bezier(.2,.8,.2,1) both; }
+/* Announcements: 3 popup styles. The ticker-only style shows no popup. */
+#announce { position: fixed; z-index: 20; pointer-events: none; display: none; }
+#announce.show { display: flex; animation: announceIn 0.35s cubic-bezier(.2,.8,.2,1) both; }
+#announce.style-banner { left: 0; right: 0; top: 18%; justify-content: center; padding: 0 16px; }
+#announce.style-toast { left: 0; right: 0; bottom: calc(16px + env(safe-area-inset-bottom)); justify-content: center; padding: 0 16px; }
+#announce.style-toast .announce-card { max-width: 380px; padding: 10px 14px; text-align: left; }
+#announce.style-toast .announce-card b { font-size: 16px; }
+#announce.style-fullscreen { inset: 0; align-items: center; justify-content: center; padding: 16px; background: rgba(5, 18, 13, 0.86); }
+#announce.style-fullscreen .announce-card { max-width: 480px; background: transparent; border: none; box-shadow: none; }
+#announce.style-fullscreen .announce-card b { font-size: 30px; }
+#announce.style-fullscreen .announce-card ul { font-size: 17px; }
 .announce-card { max-width: 420px; width: 100%; padding: 14px 18px; border-radius: 14px; background: rgba(10, 30, 22, 0.94); border: 2px solid #8ecae6; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); text-align: center; }
+.announce-card section + section { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
 .announce-card b { font-size: 20px; display: block; }
 .announce-card ul { list-style: none; padding: 0; margin: 6px 0 0; font-size: 14px; color: var(--muted); }
 .announce-card.conflict { border-color: var(--red); }
-.announce-card.conflict b { color: var(--red); }
 .announce-card.swap { border-color: var(--gold); }
-.announce-card.swap b { color: var(--gold); }
 .announce-card.result { border-color: var(--ok); }
-.announce-card.result b { color: var(--ok); }
+.announce-card section.conflict b { color: var(--red); }
+.announce-card section.swap b { color: var(--gold); }
+.announce-card section.result b { color: var(--ok); }
+.announce-card small { display: block; margin-top: 4px; font-size: 12px; color: var(--muted); }
+.intro-bar { height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.12); overflow: hidden; margin-top: 12px; }
+.intro-bar div { height: 100%; background: var(--gold); transform-origin: left; animation-name: introBar; animation-timing-function: linear; animation-fill-mode: both; }
+@keyframes introBar { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+
+/* Intro pause: controls wait until the timer starts */
+#main.intro [data-act] { pointer-events: none; }
+#main.intro .ladder, #main.intro button.big { opacity: 0.55; }
+.countdown.waiting .bar { background: #8ecae6; }
+.countdown.waiting .secs { color: #1d1d1d; }
+.toggles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+[data-act="preview"] { margin-top: 6px; width: 100%; }
 
 /* Phase change, deal, bounce, urgent countdown */
 #main.phase-in { animation: fadeUp 0.4s ease-out; }

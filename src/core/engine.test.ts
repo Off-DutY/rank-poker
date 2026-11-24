@@ -25,7 +25,8 @@ class Table {
   constructor(n: number, settings: Partial<Settings> = {}) {
     this.s = createGame('P0', 'Host');
     for (let i = 1; i < n; i++) this.act(`P${i}`, { type: 'join', name: `N${i}` });
-    if (Object.keys(settings).length) this.act('P0', { type: 'settings', settings });
+    // Tests run without the intro pause unless a test sets it.
+    this.act('P0', { type: 'settings', settings: { introSeconds: 0, ...settings } });
   }
 
   get ids() {
@@ -105,7 +106,9 @@ describe('lobby', () => {
     const t = new Table(3);
     expect(t.act('P1', { type: 'settings', settings: { swapSeconds: 5 } })).toBe(false);
     t.act('P0', { type: 'settings', settings: { swapSeconds: 999, persistenceMode: 'free' } });
-    expect(t.s.settings).toEqual({ swapSeconds: 180, persistenceMode: 'free' });
+    expect(t.s.settings).toMatchObject({ swapSeconds: 180, persistenceMode: 'free' });
+    t.act('P0', { type: 'settings', settings: { introSeconds: 99, notifyStyle: 'nope' as never, sound: true } });
+    expect(t.s.settings).toMatchObject({ introSeconds: 5, notifyStyle: 'banner', sound: true });
   });
 });
 
@@ -410,6 +413,43 @@ describe('showdown and match', () => {
     t.pickAll(Object.fromEntries(sorted.map((id, i) => [id, 3 - i])));
     expect(t.s.showdown!.success).toBe(false);
     expect(t.s.score).toEqual({ wins: 0, losses: 1 });
+  });
+});
+
+describe('intro pause', () => {
+  it('starts each timer after the intro and blocks actions until then', () => {
+    const t = new Table(3, { introSeconds: 3 });
+    t.act('P0', { type: 'start' });
+    expect(t.s.startsAt).toBe(t.now + 3_000);
+    expect(t.s.deadline).toBe(t.now + 3_000 + RULES.pickMs);
+    expect(t.act('P1', { type: 'pick', rank: 1 })).toBe(false);
+    t.now += 3_000;
+    expect(t.act('P1', { type: 'pick', rank: 1 })).toBe(true);
+  });
+
+  it('adds the intro to the conflict and swap phases too', () => {
+    const t = new Table(3, { introSeconds: 2 });
+    t.act('P0', { type: 'start' });
+    t.now += 2_000;
+    t.pickAll({ P0: 1, P1: 1, P2: 3 });
+    expect(t.s.phase).toBe('PERSIST');
+    expect(t.s.deadline).toBe(t.now + 2_000 + RULES.persistMs);
+    expect(t.act('P0', { type: 'persist', value: 1 })).toBe(false);
+    t.now += 2_000;
+    t.act('P0', { type: 'persist', value: 1 });
+    t.act('P1', { type: 'persist', value: 0 });
+    expect(t.s.phase).toBe('SWAP');
+    expect(t.s.deadline).toBe(t.now + 2_000 + 60_000);
+    expect(t.act('P0', { type: 'swapDone', done: true })).toBe(false);
+  });
+
+  it('does not let a timeout fire during the intro', () => {
+    const t = new Table(3, { introSeconds: 5 });
+    t.act('P0', { type: 'start' });
+    t.advance(RULES.pickMs + RULES.graceMs);
+    expect(t.s.phase).toBe('PICK');
+    t.advance(5_000);
+    expect(t.s.phase).toBe('SWAP');
   });
 });
 

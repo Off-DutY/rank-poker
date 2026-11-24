@@ -18,18 +18,29 @@ export const RULES = {
   winTarget: 3,
   loseTarget: 3,
   maxSwapSeconds: 180,
+  maxIntroSeconds: 5,
   maxNameLength: 12,
 } as const;
 
 /** How persistence is paid for. */
 export type PersistenceMode = 'budget' | 'free';
 
+/** How players see announcements. */
+export type NotifyStyle = 'fullscreen' | 'banner' | 'toast' | 'ticker';
+
 /** Room settings that the host can change in the lobby. */
 export interface Settings {
   persistenceMode: PersistenceMode;
   /** Length of the swap phase in seconds. 0 skips the swap phase. */
   swapSeconds: number;
+  /** Pause before each timed phase starts, for the announcement. 0 starts the timer at once. */
+  introSeconds: number;
+  notifyStyle: NotifyStyle;
+  sound: boolean;
+  vibrate: boolean;
 }
+
+const NOTIFY_STYLES: readonly NotifyStyle[] = ['fullscreen', 'banner', 'toast', 'ticker'];
 
 /** Game phase. Deal, resolve and reveal are instant and have no phase of their own. */
 export type Phase = 'LOBBY' | 'PICK' | 'PERSIST' | 'SWAP' | 'SHOWDOWN' | 'MATCH_END';
@@ -90,6 +101,8 @@ export interface GameState {
   score: { wins: number; losses: number };
   /** Phase deadline for PICK and PERSIST; swap end time for SWAP; otherwise null. */
   deadline: number | null;
+  /** End of the intro pause of the current timed phase. Player actions wait until then. */
+  startsAt: number | null;
   hole: Record<PlayerId, [Card, Card]>;
   fullBoard: Card[];
   board: Card[];
@@ -128,6 +141,18 @@ export type JoinRejection = 'full' | 'started';
 
 const ACTIVE: ReadonlySet<SwapStatus> = new Set(['pending', 'deciding', 'challenge']);
 
+/** Actions that wait for the intro pause to end. */
+const TIMED_ACTIONS: ReadonlySet<string> = new Set([
+  'pick',
+  'lock',
+  'unlock',
+  'persist',
+  'swapRequest',
+  'swapRespond',
+  'swapChallenge',
+  'swapDone',
+]);
+
 /** Returns a cleaned player name: no control characters, trimmed, at most 12 characters. */
 export function cleanName(raw: unknown): string {
   // eslint-disable-next-line no-control-regex
@@ -139,13 +164,14 @@ export function cleanName(raw: unknown): string {
 export function createGame(hostId: PlayerId, hostName: string): GameState {
   return {
     phase: 'LOBBY',
-    settings: { persistenceMode: 'budget', swapSeconds: 60 },
+    settings: { persistenceMode: 'budget', swapSeconds: 60, introSeconds: 3, notifyStyle: 'banner', sound: false, vibrate: false },
     hostId,
     seats: [{ id: hostId, name: cleanName(hostName), connected: true }],
     handNo: 0,
     round: 0,
     score: { wins: 0, losses: 0 },
     deadline: null,
+    startsAt: null,
     hole: {},
     fullBoard: [],
     board: [],
@@ -201,6 +227,7 @@ function apply(s: GameState, a: Action, now: number, rng: Rng): boolean {
   if (a.type === 'join') return join(s, a.id, a.name);
   if (!seat) return false;
   const isHost = a.id === s.hostId;
+  if (TIMED_ACTIONS.has(a.type) && s.startsAt != null && now < s.startsAt) return false;
 
   switch (a.type) {
     case 'leave':
@@ -258,7 +285,19 @@ function updateSettings(s: GameState, patch: Partial<Settings>): boolean {
   if (typeof patch.swapSeconds === 'number' && Number.isFinite(patch.swapSeconds)) {
     s.settings.swapSeconds = Math.min(RULES.maxSwapSeconds, Math.max(0, Math.round(patch.swapSeconds)));
   }
+  if (typeof patch.introSeconds === 'number' && Number.isFinite(patch.introSeconds)) {
+    s.settings.introSeconds = Math.min(RULES.maxIntroSeconds, Math.max(0, Math.round(patch.introSeconds)));
+  }
+  if (patch.notifyStyle && NOTIFY_STYLES.includes(patch.notifyStyle)) s.settings.notifyStyle = patch.notifyStyle;
+  if (typeof patch.sound === 'boolean') s.settings.sound = patch.sound;
+  if (typeof patch.vibrate === 'boolean') s.settings.vibrate = patch.vibrate;
   return true;
+}
+
+/** Starts the intro pause of a timed phase and returns the time when the phase timer starts. */
+function startTimer(s: GameState, now: number): number {
+  s.startsAt = now + s.settings.introSeconds * 1000;
+  return s.startsAt;
 }
 
 function deal(s: GameState, now: number, rng: Rng): void {
@@ -281,7 +320,7 @@ function startPick(s: GameState, now: number): void {
   s.picks = Object.fromEntries(s.seats.map((x) => [x.id, { rank: s.ranks[x.id] ?? null, locked: false }]));
   s.conflict = null;
   s.swap = null;
-  s.deadline = now + RULES.pickMs;
+  s.deadline = startTimer(s, now) + RULES.pickMs;
 }
 
 function pick(s: GameState, id: PlayerId, rank: number): boolean {
@@ -318,7 +357,7 @@ function finishPick(s: GameState, now: number, rng: Rng): void {
   }
   s.phase = 'PERSIST';
   s.conflict = { participants, bids: {} };
-  s.deadline = now + RULES.persistMs;
+  s.deadline = startTimer(s, now) + RULES.persistMs;
 }
 
 function pickedRanks(s: GameState): Record<PlayerId, number | null> {
@@ -372,7 +411,7 @@ function applyRanks(s: GameState, ranks: Record<PlayerId, number>, now: number):
   }
   s.phase = 'SWAP';
   s.swap = { requests: [], done: {}, nextId: 1 };
-  s.deadline = now + s.settings.swapSeconds * 1000;
+  s.deadline = startTimer(s, now) + s.settings.swapSeconds * 1000;
 }
 
 function isBusy(s: GameState, id: PlayerId): boolean {
@@ -487,6 +526,7 @@ function showdown(s: GameState): void {
   s.showdown = { entries, ranks: { ...s.ranks }, success };
   s.phase = 'SHOWDOWN';
   s.deadline = null;
+  s.startsAt = null;
 }
 
 function next(s: GameState, now: number, rng: Rng): boolean {
@@ -548,6 +588,7 @@ export interface PublicState {
   round: number;
   score: { wins: number; losses: number };
   deadline: number | null;
+  startsAt: number | null;
   board: Card[];
   picks: Record<PlayerId, Pick>;
   ranks: Record<PlayerId, number>;
@@ -577,6 +618,7 @@ export function publicView(s: GameState): PublicState {
     round: s.round,
     score: { ...s.score },
     deadline: s.deadline,
+    startsAt: s.startsAt,
     board: s.board.slice(),
     picks: structuredClone(s.picks),
     ranks: { ...s.ranks },

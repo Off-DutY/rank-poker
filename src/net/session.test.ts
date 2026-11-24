@@ -24,6 +24,7 @@ describe('host and clients over the memory hub', () => {
     vi.useFakeTimers();
     hub = new MemoryHub();
     host = new HostSession('H', 'Host', hub.connect(), realClock, seededRng(3));
+    host.act({ type: 'settings', settings: { introSeconds: 0 } });
     clients = [];
     for (let i = 1; i <= 3; i++) {
       const rec = recording(hub.connect());
