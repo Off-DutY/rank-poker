@@ -4,7 +4,7 @@ import type { Session } from '../net/session';
 import { boardBurst, captureChips, createAnnouncer, dealCards, flashChips, playChipMoves, pop } from './effects';
 import { type Announcement, diffEvents } from './events';
 import { unlockAudio } from './sound';
-import { type Ctx, cards, header, historyTable, lobby, matchEnd, persistPrompt, persistWindow, pickLadder, showdownView, swapView } from './render';
+import { type Ctx, cards, header, historyTable, lobby, rankChangeHtml, matchEnd, persistPrompt, persistWindow, pickLadder, showdownView, swapView } from './render';
 import { roomUrl } from './room';
 
 const REJECT_TEXT: Record<string, string> = {
@@ -76,6 +76,9 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
     const ctx: Ctx = { me: session.me, isHost: session.isHost, pub: v.pub, priv: v.priv };
     set(hdr, header(ctx, code));
     const now = session.hostNow();
+    // During the intro pause the host ignores actions, so the controls look paused too.
+    const inIntro = v.pub.startsAt != null && now < v.pub.startsAt;
+    const changes = inIntro ? rankChangeHtml(v.pub, session.me) : '';
     const body =
       v.pub.phase === 'LOBBY'
         ? lobby(ctx, url)
@@ -83,11 +86,9 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
           ? showdownView(ctx)
           : v.pub.phase === 'MATCH_END'
             ? matchEnd(ctx)
-            : cards(ctx) + (v.pub.phase === 'SWAP' ? swapView(ctx, now) : pickLadder(ctx)) + historyTable(ctx);
+            : cards(ctx) + changes + (v.pub.phase === 'SWAP' ? swapView(ctx, now) : pickLadder(ctx)) + historyTable(ctx);
     const before = captureChips(main);
     if (set(main, body)) playEffects(v.pub, before);
-    // During the intro pause the host ignores actions, so the controls look paused too.
-    const inIntro = v.pub.startsAt != null && now < v.pub.startsAt;
     main.classList.toggle('intro', inIntro);
     const slot = main.querySelector('#qr-slot');
     if (slot && !slot.contains(qr)) slot.append(qr);
@@ -245,7 +246,7 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
       const items = diffEvents(lastPub, pub, session.me);
       // A new intro pause means a timed phase starts: keep its announcements up until the timer starts.
       const until = pub.startsAt != null && pub.startsAt !== lastPub?.startsAt && pub.startsAt > session.hostNow() ? pub.startsAt : null;
-      if (items.length) announcer.push(items, until, notifyOptions(pub));
+      if (items.length) announcer.push(items, until, notifyOptions(pub), false, until != null ? rankChangeHtml(pub, session.me) : '');
       lastPub = pub;
     }
     render();

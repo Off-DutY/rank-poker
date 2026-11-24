@@ -365,6 +365,10 @@ export function persistWindow(ctx: Ctx, p: PersistPrompt): string {
   return `<div class="modal"><div class="dialog">
     <h2>${p.title}</h2>
     ${countdown(p.deadline, 10_000)}
+    <div class="dialog-cards" aria-label="公牌與你的手牌">
+      <div class="board">${Array.from({ length: 5 }, (_, i) => card(ctx.pub.board[i] ?? null)).join('')}</div>
+      <div class="hole"><span class="label">你的手牌</span>${(ctx.priv.hole ?? [null, null]).map(card).join('')}</div>
+    </div>
     <div class="contest"><span class="label">爭奪的名次</span><div class="contest-rank">${p.contested}${rankHint(p.contested, ctx.pub.seats.length)}</div>
       <span class="label">1 最小 · ${ctx.pub.seats.length} 最大</span></div>
     ${p.detail}
@@ -441,4 +445,61 @@ export function matchEnd(ctx: Ctx): string {
   return `<div class="result ${won ? 'ok' : 'bad'} huge">${won ? '全隊勝利' : '全隊落敗'}</div>
     <p class="center">勝 ${pub.score.wins} / 敗 ${pub.score.losses}</p>
     ${isHost ? '<button class="primary big" data-act="next">再玩一場</button>' : '<p class="hint center">等待房主開新的一場…</p>'}`;
+}
+
+/** One player's rank before and after a step. `from` is null when there is nothing to compare. */
+export interface RankChange {
+  id: PlayerId;
+  from: number | null;
+  to: number;
+}
+
+/**
+ * Returns the rank changes to show during an intro pause, or null when there is nothing to show.
+ * Swap intro: the picked rank against the assigned rank.
+ * Pick intro (round 2+): the rank at the end of the round before the last one against the last round.
+ */
+export function rankChanges(pub: PublicState): { title: string; rows: RankChange[] } | null {
+  const ids = pub.seats.map((s) => s.id);
+  let title: string;
+  let rows: RankChange[];
+  if (pub.phase === 'SWAP') {
+    title = '名次確定：選擇 → 結果';
+    rows = ids.filter((id) => pub.ranks[id] != null).map((id) => ({ id, from: pub.picks[id]?.rank ?? null, to: pub.ranks[id]! }));
+  } else if (pub.phase === 'PICK' && pub.round >= 2) {
+    const prevName = ROUND_NAMES[pub.round - 1];
+    title = pub.round >= 3 ? `${ROUND_NAMES[pub.round - 2]} → ${prevName} 的名次變化` : `${prevName}的最終名次`;
+    rows = ids
+      .filter((id) => pub.history[id]?.length)
+      .map((id) => {
+        const h = pub.history[id]!;
+        return { id, from: h.length >= 2 ? h[h.length - 2]! : null, to: h[h.length - 1]! };
+      });
+  } else {
+    return null;
+  }
+  if (rows.length === 0) return null;
+  rows.sort((a, b) => a.to - b.to);
+  return { title, rows };
+}
+
+/** Renders the rank change panel for the intro pause. Changed rows animate in one after another. */
+export function rankChangeHtml(pub: PublicState, me: PlayerId): string {
+  const rc = rankChanges(pub);
+  if (!rc) return '';
+  const n = pub.seats.length;
+  const rows = rc.rows
+    .map((r, i) => {
+      const moved = r.from != null && r.from !== r.to;
+      const dir = !moved ? '' : r.to > r.from! ? 'up' : 'down';
+      const arrow = dir === 'up' ? `↑${r.to - r.from!}` : dir === 'down' ? `↓${r.from! - r.to}` : '';
+      const from = moved ? `<span class="rc-from">${r.from}</span><span class="rc-to-arrow">→</span>` : '';
+      const same = r.from != null && !moved ? '<small>不變</small>' : '';
+      return `<li class="rc-row ${dir}${r.id === me ? ' me' : ''}" style="--i:${i}">
+        <span class="rc-name">${r.id === me ? '你' : nameOf(pub, r.id)}</span>
+        <span class="rc-ranks">${from}<b class="rc-to">${r.to}</b>${rankHint(r.to, n)}${same}</span>
+        <span class="rc-arrow">${arrow}</span></li>`;
+    })
+    .join('');
+  return `<section class="rank-change"><div class="rc-title">${rc.title}</div><ol>${rows}</ol></section>`;
 }

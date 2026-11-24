@@ -305,3 +305,31 @@ button.chip { border-color: var(--gold); }
 @keyframes shine { to { transform: translateX(120%); } }
 /* The flop or turn effect takes the stage; the announcement shows again after it. */
 #app:has(.burst) #announce { visibility: hidden; }
+
+/* Cards inside the persistence and challenge window */
+.dialog-cards { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px; border-radius: 10px; background: rgba(0, 0, 0, 0.25); margin-bottom: 8px; }
+.dialog-cards .board { margin: 0; gap: 4px; }
+.dialog-cards .card { width: 34px; height: 48px; font-size: 14px; }
+.dialog-cards .card small { font-size: 12px; }
+.dialog-cards .hole { display: flex; align-items: center; gap: 4px; }
+.dialog-cards .hole .label { margin: 0 6px 0 0; }
+
+/* Rank change panel during the intro pause */
+.rank-change { margin: 6px 0 10px; padding: 10px 12px; border-radius: 12px; background: rgba(0, 0, 0, 0.3); border: 1px solid var(--gold); text-align: left; }
+.rc-title { font-size: 13px; color: var(--gold); font-weight: 700; margin-bottom: 6px; }
+.rank-change ol { list-style: none; padding: 0; margin: 0; display: grid; gap: 3px; }
+.rc-row { display: grid; grid-template-columns: 1fr auto 44px; align-items: center; gap: 8px; padding: 3px 8px; border-radius: 8px; font-size: 14px; color: var(--text); animation: rcIn 0.45s cubic-bezier(.2,.8,.2,1) both; animation-delay: calc(var(--i) * 0.12s + 0.2s); }
+.rc-row.me { background: rgba(142, 202, 230, 0.15); }
+.rc-row.up, .rc-row.down { background: rgba(233, 196, 106, 0.12); }
+.rc-ranks { display: flex; align-items: baseline; gap: 4px; }
+.rc-ranks small { font-size: 10px; color: var(--muted); }
+.rc-from { color: var(--muted); text-decoration: line-through; }
+.rc-to-arrow { color: var(--muted); }
+.rc-to { font-size: 18px; animation: rcPop 0.5s ease-out both; animation-delay: calc(var(--i) * 0.12s + 0.45s); }
+.rc-row.up .rc-to, .rc-row.up .rc-arrow { color: var(--gold); }
+.rc-row.down .rc-to, .rc-row.down .rc-arrow { color: var(--blue); }
+.rc-arrow { font-weight: 900; text-align: right; }
+.announce-card .rank-change { margin-top: 12px; }
+@keyframes rcIn { from { opacity: 0; transform: translateX(-24px); } to { opacity: 1; transform: none; } }
+@keyframes rcPop { 0% { transform: scale(0.4); opacity: 0; } 60% { transform: scale(1.5); opacity: 1; } 100% { transform: none; } }
+.dialog { max-height: calc(100dvh - 32px); overflow-y: auto; }

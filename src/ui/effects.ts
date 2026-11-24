@@ -24,6 +24,8 @@ export interface NotifyOptions {
 /** One screen of announcements: all events from 1 state change. */
 interface Page {
   items: Announcement[];
+  /** Trusted HTML built by the app (for example the rank change panel), shown under the text. */
+  extraHtml: string;
   /** Host time when the intro pause ends, or null when no timed phase starts. */
   until: number | null;
   opts: NotifyOptions;
@@ -39,7 +41,7 @@ export function createAnnouncer(
   popup: HTMLElement,
   ticker: HTMLElement,
   hostNow: () => number,
-): { push(items: Announcement[], until: number | null, opts: NotifyOptions, preview?: boolean): void } {
+): { push(items: Announcement[], until: number | null, opts: NotifyOptions, preview?: boolean, extraHtml?: string): void } {
   const queue: Page[] = [];
   let timer: ReturnType<typeof setTimeout> | null = null;
 
@@ -49,7 +51,7 @@ export function createAnnouncer(
   };
 
   const show = (page: Page) => {
-    const { items, until, opts } = page;
+    const { items, until, opts, extraHtml } = page;
     const kind = items.reduce<AnnouncementKind>((k, a) => (KIND_RANK[a.kind] > KIND_RANK[k] ? a.kind : k), 'info');
     if (opts.sound) playCue(kind);
     if (opts.vibrate) vibrateCue(kind);
@@ -65,7 +67,7 @@ export function createAnnouncer(
         })
         .join('');
       const bar = until != null ? `<div class="intro-bar"><div style="animation-duration:${ms}ms"></div></div><small>倒數即將開始</small>` : '';
-      popup.innerHTML = `<div class="announce-card ${kind}">${blocks}${bar}</div>`;
+      popup.innerHTML = `<div class="announce-card ${kind}">${blocks}${extraHtml}${bar}</div>`;
       popup.className = `style-${style}`;
       void popup.offsetWidth; // Restart the CSS animation.
       popup.classList.add('show');
@@ -84,7 +86,7 @@ export function createAnnouncer(
   };
 
   return {
-    push(items, until, opts, preview = false) {
+    push(items, until, opts, preview = false, extraHtml = '') {
       const latest = items.at(-1);
       if (!latest) return;
       if (!preview) {
@@ -94,7 +96,7 @@ export function createAnnouncer(
         void ticker.offsetWidth;
         ticker.classList.add('flash');
       }
-      const page: Page = { items, until, opts };
+      const page: Page = { items, until, opts, extraHtml };
       if (until != null) {
         // A phase start is the most important news: drop older pages and show it now.
         queue.length = 0;
