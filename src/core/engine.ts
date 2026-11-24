@@ -19,7 +19,7 @@ export const RULES = {
   loseTarget: 3,
   maxSwapSeconds: 180,
   maxIntroSeconds: 5,
-  /** Extra intro time when new board cards are revealed, for the big reveal effect. Only when the intro is on. */
+  /** Extra intro time when cards are dealt or revealed (every round), for the big reveal effect. Only when the intro is on. */
   boardRevealMs: 2_000,
   maxNameLength: 12,
 } as const;
@@ -323,8 +323,8 @@ function startPick(s: GameState, now: number): void {
   s.picks = Object.fromEntries(s.seats.map((x) => [x.id, { rank: s.ranks[x.id] ?? null, locked: false }]));
   s.conflict = null;
   s.swap = null;
-  // Rounds 2-4 reveal board cards: give the reveal effect its own time before the announcement.
-  s.deadline = startTimer(s, now, s.round >= 2 ? RULES.boardRevealMs : 0) + RULES.pickMs;
+  // Every round deals or reveals cards (hole cards, flop, turn, river): give the big reveal its own time.
+  s.deadline = startTimer(s, now, RULES.boardRevealMs) + RULES.pickMs;
 }
 
 function pick(s: GameState, id: PlayerId, rank: number): boolean {

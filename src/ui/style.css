@@ -218,14 +218,14 @@ button.chip { border-color: var(--gold); }
 #announce.style-banner { left: 0; right: 0; top: 18%; justify-content: center; padding: 0 16px; }
 #announce.style-toast { left: 0; right: 0; bottom: calc(16px + env(safe-area-inset-bottom)); justify-content: center; padding: 0 16px; }
 #announce.style-toast .announce-card { max-width: 380px; padding: 10px 14px; text-align: left; }
-#announce.style-toast .announce-card b { font-size: 16px; }
+#announce.style-toast .announce-card section > b { font-size: 16px; }
 #announce.style-fullscreen { inset: 0; align-items: center; justify-content: center; padding: 16px; background: rgba(5, 18, 13, 0.86); }
 #announce.style-fullscreen .announce-card { max-width: 480px; background: transparent; border: none; box-shadow: none; }
-#announce.style-fullscreen .announce-card b { font-size: 30px; }
+#announce.style-fullscreen .announce-card section > b { font-size: 30px; }
 #announce.style-fullscreen .announce-card ul { font-size: 17px; }
 .announce-card { max-width: 420px; width: 100%; padding: 14px 18px; border-radius: 14px; background: rgba(10, 30, 22, 0.94); border: 2px solid #8ecae6; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); text-align: center; }
 .announce-card section + section { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
-.announce-card b { font-size: 20px; display: block; }
+.announce-card section > b { font-size: 20px; display: block; }
 .announce-card ul { list-style: none; padding: 0; margin: 6px 0 0; font-size: 14px; color: var(--muted); }
 .announce-card.conflict { border-color: var(--red); }
 .announce-card.swap { border-color: var(--gold); }
@@ -320,7 +320,7 @@ button.chip { border-color: var(--gold); }
 .rank-change { --step: 31px; margin: 6px 0 10px; padding: 10px 12px; border-radius: 12px; background: rgba(0, 0, 0, 0.3); border: 1px solid var(--gold); text-align: left; }
 .rc-title { font-size: 13px; color: var(--gold); font-weight: 700; margin-bottom: 6px; }
 .rank-change ol { list-style: none; padding: 0; margin: 0; display: grid; gap: 3px; }
-.rc-row { height: 28px; display: grid; grid-template-columns: 1fr auto 44px; align-items: center; gap: 8px; padding: 0 8px; border-radius: 8px; font-size: 14px; color: var(--text); animation: rcMove 1.9s cubic-bezier(.2,.8,.2,1) 0.15s both; }
+.rc-row { height: 28px; display: grid; grid-template-columns: minmax(0, 1fr) auto 44px; align-items: center; gap: 8px; padding: 0 8px; border-radius: 8px; font-size: 14px; color: var(--text); animation: rcMove 1.9s cubic-bezier(.2,.8,.2,1) 0.15s both; }
 .rc-row.me { background: rgba(142, 202, 230, 0.15); }
 .rc-row.up, .rc-row.down { background: rgba(233, 196, 106, 0.12); }
 .rc-ranks { display: flex; align-items: baseline; gap: 4px; }
@@ -347,3 +347,10 @@ button.chip { border-color: var(--gold); }
 @keyframes rcNewIn { 0% { opacity: 0; max-width: 0; transform: scale(0.4); } 1% { max-width: 80px; } 60% { opacity: 1; transform: scale(1.5); } 100% { opacity: 1; max-width: 80px; transform: none; } }
 @keyframes rcAppear { from { opacity: 0; } to { opacity: 1; } }
 .dialog { max-height: calc(100dvh - 32px); overflow-y: auto; }
+
+/* Long names never wrap in the rank change panel; they end with an ellipsis. */
+.rc-name { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rc-ranks { white-space: nowrap; }
+/* Center the name and the ranks on the same line (baseline alignment drifted with the larger rank digits). */
+.rc-row { line-height: 1.2; }
+.rc-ranks, .rc-new { align-items: center; }

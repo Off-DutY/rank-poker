@@ -86,7 +86,8 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
     const now = session.hostNow();
     // During the intro pause the host ignores actions, so the controls look paused too.
     const inIntro = v.pub.startsAt != null && now < v.pub.startsAt;
-    const changes = inIntro ? rankChangeHtml(v.pub, session.me) : '';
+    // With a popup style the panel is in the popup only; the ticker-only style shows it on the table.
+    const changes = inIntro && v.pub.settings.notifyStyle === 'ticker' ? rankChangeHtml(v.pub, session.me) : '';
     const body =
       v.pub.phase === 'LOBBY'
         ? lobby(ctx, url)
@@ -123,7 +124,10 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
     playChipMoves(main, before);
     const atTable = pub.phase === 'PICK' || pub.phase === 'PERSIST' || pub.phase === 'SWAP';
     if (atTable && pub.handNo !== fx.hand) {
-      dealCards(main.querySelectorAll('.hole .card'));
+      // A new hand: the own hole cards get the big reveal, then land in the hand area.
+      const hole = [...main.querySelectorAll('.hole .card')];
+      if (hole.length && !hole[0]!.classList.contains('back')) boardBurst(root, '你的手牌', hole.map((c) => c.outerHTML));
+      dealCards(hole, 1_500);
       dealCards(main.querySelectorAll('.board .card'), 300);
     } else if (atTable && pub.board.length > fx.board) {
       // Only the newly revealed cards; the slots after them are still card backs.
@@ -265,7 +269,10 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
         reveal.round = pub.round;
       }
       const announceUntil = newCards ? Math.max(session.hostNow(), reveal.at) : until;
-      if (items.length) announcer.push(items, announceUntil, notifyOptions(pub), false, extra);
+      // A new hand plays the hole card reveal first; its announcement waits until the reveal ends.
+      const newHand = until != null && pub.phase === 'PICK' && pub.round === 1 && pub.handNo !== lastPub?.handNo;
+      const delay = newHand ? RULES.boardRevealMs : 0;
+      if (items.length) announcer.push(items, announceUntil, notifyOptions(pub), false, extra, delay);
       lastPub = pub;
     }
     render();

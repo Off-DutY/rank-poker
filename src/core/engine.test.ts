@@ -420,17 +420,17 @@ describe('intro pause', () => {
   it('starts each timer after the intro and blocks actions until then', () => {
     const t = new Table(3, { introSeconds: 3 });
     t.act('P0', { type: 'start' });
-    expect(t.s.startsAt).toBe(t.now + 3_000);
-    expect(t.s.deadline).toBe(t.now + 3_000 + RULES.pickMs);
+    expect(t.s.startsAt).toBe(t.now + 3_000 + RULES.boardRevealMs);
+    expect(t.s.deadline).toBe(t.now + 3_000 + RULES.boardRevealMs + RULES.pickMs);
     expect(t.act('P1', { type: 'pick', rank: 1 })).toBe(false);
-    t.now += 3_000;
+    t.now += 3_000 + RULES.boardRevealMs;
     expect(t.act('P1', { type: 'pick', rank: 1 })).toBe(true);
   });
 
   it('adds the intro to the conflict and swap phases too', () => {
     const t = new Table(3, { introSeconds: 2 });
     t.act('P0', { type: 'start' });
-    t.now += 2_000;
+    t.now += 2_000 + RULES.boardRevealMs;
     t.pickAll({ P0: 1, P1: 1, P2: 3 });
     expect(t.s.phase).toBe('PERSIST');
     expect(t.s.deadline).toBe(t.now + 2_000 + RULES.persistMs);
@@ -443,11 +443,11 @@ describe('intro pause', () => {
     expect(t.act('P0', { type: 'swapDone', done: true })).toBe(false);
   });
 
-  it('adds the board reveal time to the intro of rounds 2-4 only', () => {
+  it('adds the card reveal time to the intro of every round', () => {
     const t = new Table(3, { introSeconds: 2, swapSeconds: 0 });
     t.act('P0', { type: 'start' });
-    expect(t.s.startsAt).toBe(t.now + 2_000);
-    t.now += 2_000;
+    expect(t.s.startsAt).toBe(t.now + 2_000 + RULES.boardRevealMs);
+    t.now += 2_000 + RULES.boardRevealMs;
     t.pickAll({ P0: 1, P1: 2, P2: 3 });
     expect(t.s.round).toBe(2);
     expect(t.s.startsAt).toBe(t.now + 2_000 + RULES.boardRevealMs);
@@ -458,7 +458,7 @@ describe('intro pause', () => {
     t.act('P0', { type: 'start' });
     t.advance(RULES.pickMs + RULES.graceMs);
     expect(t.s.phase).toBe('PICK');
-    t.advance(5_000);
+    t.advance(5_000 + RULES.boardRevealMs);
     expect(t.s.phase).toBe('SWAP');
   });
 });
