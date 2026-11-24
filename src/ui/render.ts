@@ -1,0 +1,290 @@
+import type { Card } from '../core/cards';
+import type { PlayerId, PrivateState, PublicState, PublicSwapRequest, Seat } from '../core/engine';
+
+/** Escapes text for HTML. All player-provided text must go through it (spec 11). */
+export function esc(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+}
+
+const SUIT_SYMBOL: Record<string, string> = { s: '♠', h: '♥', d: '♦', c: '♣' };
+
+/** Renders 1 card, or a card back when `card` is null. */
+export function card(c: Card | null): string {
+  if (!c) return '<span class="card back"></span>';
+  const rank = c[0] === 'T' ? '10' : c[0]!;
+  const red = c[1] === 'h' || c[1] === 'd';
+  return `<span class="card${red ? ' red' : ''}">${rank}<small>${SUIT_SYMBOL[c[1]!]}</small></span>`;
+}
+
+/** Context for rendering: the views plus who is looking. */
+export interface Ctx {
+  me: PlayerId;
+  isHost: boolean;
+  pub: PublicState;
+  priv: PrivateState;
+}
+
+const nameOf = (pub: PublicState, id: PlayerId) => esc(pub.seats.find((s) => s.id === id)?.name ?? '?');
+const ROUND_NAMES = ['', '翻牌前', '翻牌', '轉牌', '河牌'];
+
+/** Renders a countdown bar. The app fills in the time every frame. */
+export function countdown(deadline: number | null, totalMs: number): string {
+  if (deadline == null) return '';
+  return `<div class="countdown" data-deadline="${deadline}" data-total="${totalMs}"><div class="bar"></div><span class="secs"></span></div>`;
+}
+
+/** Renders the header: room code, score and the current step. */
+export function header(ctx: Ctx, code: string): string {
+  const { pub } = ctx;
+  const step =
+    pub.phase === 'LOBBY'
+      ? '等待玩家'
+      : pub.phase === 'SHOWDOWN'
+        ? `第 ${pub.handNo} 局・攤牌`
+        : pub.phase === 'MATCH_END'
+          ? '本場結束'
+          : `第 ${pub.handNo} 局・${ROUND_NAMES[pub.round]}`;
+  return `<div class="room">房號 <b>${code}</b></div>
+    <div class="step">${step}</div>
+    <div class="score"><span class="win">勝 ${pub.score.wins}</span> / <span class="lose">敗 ${pub.score.losses}</span></div>`;
+}
+
+/** Renders the lobby: player list, settings and the start button. */
+export function lobby(ctx: Ctx, url: string): string {
+  const { pub, isHost } = ctx;
+  const n = pub.seats.length;
+  const modes: [string, string, string][] = [
+    ['budget', '預算制', '每局 100 單位，衝突與挑戰共用；可以挑戰'],
+    ['free', '無代價', '執著度不消耗；不能挑戰'],
+  ];
+  const swapOptions = [0, 30, 60, 90, 120, 180];
+  return `
+    <section class="panel">
+      <h2>邀請玩家</h2>
+      <div class="link-row"><input class="link" readonly value="${esc(url)}"><button data-act="copy">複製</button></div>
+      <div id="qr-slot"></div>
+    </section>
+    <section class="panel">
+      <h2>玩家 ${n} / 13</h2>
+      <ul class="seats">${pub.seats.map((s) => seatItem(ctx, s)).join('')}</ul>
+      ${n < 3 ? '<p class="hint">至少需要 3 位玩家。</p>' : ''}
+    </section>
+    <section class="panel">
+      <h2>房間設定</h2>
+      <div class="label">執著度模式</div>
+      <div class="modes">${modes
+        .map(
+          ([m, label, desc]) => `<button class="mode${pub.settings.persistenceMode === m ? ' on' : ''}" data-act="mode" data-mode="${m}" ${isHost ? '' : 'disabled'}>
+            <b>${label}</b><small>${desc}</small></button>`,
+        )
+        .join('')}</div>
+      <div class="label">交換階段長度</div>
+      <select data-act="swapSeconds" ${isHost ? '' : 'disabled'}>${swapOptions
+        .map((s) => `<option value="${s}"${pub.settings.swapSeconds === s ? ' selected' : ''}>${s === 0 ? '不交換' : `${s} 秒`}</option>`)
+        .join('')}</select>
+    </section>
+    ${isHost ? `<button class="primary big" data-act="start" ${n < 3 ? 'disabled' : ''}>開始遊戲</button>` : '<p class="hint center">等待房主開始遊戲…</p>'}`;
+}
+
+function seatItem(ctx: Ctx, s: Seat): string {
+  const tags = [s.id === ctx.pub.hostId ? '<span class="tag">房主</span>' : '', s.id === ctx.me ? '<span class="tag me">你</span>' : '', s.connected ? '' : '<span class="tag off">離線</span>'];
+  return `<li>${esc(s.name)} ${tags.join('')}</li>`;
+}
+
+/** Renders the cards: board and own hole cards. */
+export function cards(ctx: Ctx): string {
+  const board = Array.from({ length: 5 }, (_, i) => card(ctx.pub.board[i] ?? null)).join('');
+  const hole = ctx.priv.hole ? ctx.priv.hole.map(card).join('') : card(null) + card(null);
+  const budget =
+    ctx.priv.budget == null
+      ? ''
+      : `<div class="budget" title="剩餘執著度"><div style="width:${Math.round(ctx.priv.budget * 100)}%"></div></div>`;
+  return `<div class="board">${board}</div>
+    <div class="mine"><div class="hole">${hole}</div><div class="mine-side"><span class="label">你的手牌</span>${budget}</div></div>`;
+}
+
+function chip(ctx: Ctx, id: PlayerId, extra = '', attrs = ''): string {
+  const seat = ctx.pub.seats.find((s) => s.id === id);
+  const cls = ['chip', id === ctx.me ? 'me' : '', seat?.connected === false ? 'off' : '', extra].filter(Boolean).join(' ');
+  const tag = attrs ? 'button' : 'span';
+  return `<${tag} class="${cls}" ${attrs}>${nameOf(ctx.pub, id)}</${tag}>`;
+}
+
+/** Renders the rank ladder for PICK and PERSIST: who picked which rank. */
+export function pickLadder(ctx: Ctx): string {
+  const { pub, me } = ctx;
+  const n = pub.seats.length;
+  const myPick = pub.picks[me];
+  const canPick = pub.phase === 'PICK' && myPick && !myPick.locked;
+  const conflicted = new Set(pub.conflict?.participants.map((id) => pub.picks[id]?.rank) ?? []);
+  const rows: string[] = [];
+  for (let r = n; r >= 1; r--) {
+    const ids = pub.seats.filter((s) => pub.picks[s.id]?.rank === r).map((s) => s.id);
+    const chips = ids
+      .map((id) => {
+        const p = pub.picks[id]!;
+        const done = pub.conflict?.submitted.includes(id);
+        return chip(ctx, id, (p.locked ? 'locked' : '') + (done ? ' done' : ''));
+      })
+      .join('');
+    const cls = ['rung', myPick?.rank === r ? 'mine' : '', conflicted.has(r) ? 'conflict' : ''].filter(Boolean).join(' ');
+    rows.push(`<button class="${cls}" data-act="pick" data-rank="${r}" ${canPick ? '' : 'disabled'}>
+      <span class="num">${r}${r === n ? '<small>最大</small>' : r === 1 ? '<small>最小</small>' : ''}</span>
+      <span class="chips">${chips}</span></button>`);
+  }
+  const unpicked = pub.seats.filter((s) => pub.picks[s.id]?.rank == null).map((s) => chip(ctx, s.id));
+  const footer =
+    pub.phase === 'PICK'
+      ? myPick?.locked
+        ? '<p class="hint center">已鎖定，等待其他玩家…</p>'
+        : `<button class="primary big" data-act="lock" ${myPick?.rank == null ? 'disabled' : ''}>鎖定名次</button>`
+      : '<p class="hint center">名次衝突：相關玩家正在表達執著度…</p>';
+  return `${countdown(pub.deadline, pub.phase === 'PICK' ? 20_000 : 10_000)}
+    <div class="ladder">${rows.join('')}</div>
+    ${unpicked.length ? `<div class="unpicked"><span class="label">尚未選擇</span>${unpicked.join('')}</div>` : ''}
+    ${footer}`;
+}
+
+const ACTIVE = new Set(['pending', 'deciding', 'challenge']);
+const STATUS_TEXT: Record<string, string> = {
+  pending: '等待回應',
+  deciding: '已拒絕，請求者考慮挑戰',
+  challenge: '挑戰中',
+  accepted: '同意交換',
+  declined: '拒絕交換',
+  won: '挑戰成功，已交換',
+  lost: '挑戰失敗',
+  expired: '時間到，取消',
+};
+
+function busy(pub: PublicState, id: PlayerId): boolean {
+  return pub.swap?.requests.some((r) => ACTIVE.has(r.status) && (r.from === id || r.to === id)) ?? false;
+}
+
+/** Renders the swap phase: ladder with request buttons, own requests and the log. */
+export function swapView(ctx: Ctx, now: number): string {
+  const { pub, me } = ctx;
+  const swap = pub.swap!;
+  const n = pub.seats.length;
+  const timeLeft = pub.deadline != null && now < pub.deadline;
+  const usedPair = (id: PlayerId) => swap.requests.some((r) => (r.from === me && r.to === id) || (r.from === id && r.to === me));
+  const iAmBusy = busy(pub, me);
+  const rows: string[] = [];
+  for (let r = n; r >= 1; r--) {
+    const id = pub.seats.find((s) => pub.ranks[s.id] === r)?.id;
+    if (!id) continue;
+    const can = id !== me && timeLeft && !iAmBusy && !busy(pub, id) && !usedPair(id);
+    const extra = (busy(pub, id) ? 'busy' : '') + (swap.done[id] ? ' done' : '');
+    const c = can ? chip(ctx, id, extra, `data-act="swapReq" data-target="${id}"`) : chip(ctx, id, extra);
+    rows.push(`<div class="rung${id === me ? ' mine' : ''}"><span class="num">${r}${r === n ? '<small>最大</small>' : r === 1 ? '<small>最小</small>' : ''}</span><span class="chips">${c}</span></div>`);
+  }
+  const mine = swap.requests.filter((r) => ACTIVE.has(r.status) && (r.from === me || r.to === me)).map((r) => myRequest(ctx, r));
+  const log = swap.requests
+    .slice()
+    .reverse()
+    .map((r) => `<li>${nameOf(pub, r.from)} → ${nameOf(pub, r.to)}：${STATUS_TEXT[r.status]}</li>`)
+    .join('');
+  const done = swap.done[me];
+  return `${countdown(pub.deadline, pub.settings.swapSeconds * 1000)}
+    <p class="hint">點選其他玩家，提出交換名次。</p>
+    ${mine.join('')}
+    <div class="ladder">${rows.join('')}</div>
+    <button class="${done ? '' : 'primary '}big" data-act="done" data-done="${done ? 0 : 1}">${done ? '取消完成' : '完成交換'}</button>
+    ${log ? `<ul class="log">${log}</ul>` : ''}`;
+}
+
+function myRequest(ctx: Ctx, r: PublicSwapRequest): string {
+  const { pub, me } = ctx;
+  const other = nameOf(pub, r.from === me ? r.to : r.from);
+  let body = '';
+  if (r.status === 'pending' && r.to === me) {
+    body = `<b>${other}</b> 想和你交換名次（${pub.ranks[r.from]} ↔ ${pub.ranks[r.to]}）
+      <div class="row"><button class="primary" data-act="swapResp" data-req="${r.id}" data-accept="1">同意</button>
+      <button data-act="swapResp" data-req="${r.id}" data-accept="0">拒絕</button></div>`;
+  } else if (r.status === 'pending') {
+    body = `等待 <b>${other}</b> 回應…`;
+  } else if (r.status === 'deciding' && r.from === me) {
+    body = `<b>${other}</b> 拒絕了。要發起挑戰嗎？
+      <div class="row"><button class="primary" data-act="challenge" data-req="${r.id}">挑戰</button></div>`;
+  } else if (r.status === 'deciding') {
+    body = `你拒絕了 <b>${other}</b>，對方可能發起挑戰…`;
+  } else {
+    body = `與 <b>${other}</b> 的挑戰進行中…`;
+  }
+  return `<div class="request">${countdown(r.deadline, r.status === 'deciding' ? 5_000 : 10_000)}${body}</div>`;
+}
+
+/** Describes the persistence window this player must answer now, or null. */
+export interface PersistPrompt {
+  key: string;
+  title: string;
+  deadline: number | null;
+}
+
+/** Returns the open persistence window for this player, if any. */
+export function persistPrompt(ctx: Ctx): PersistPrompt | null {
+  const { pub, me } = ctx;
+  if (pub.phase === 'PERSIST' && pub.conflict?.participants.includes(me) && !pub.conflict.submitted.includes(me)) {
+    const rank = pub.picks[me]?.rank;
+    const rivals = pub.conflict.participants.filter((id) => id !== me && pub.picks[id]?.rank === rank).map((id) => nameOf(pub, id));
+    return { key: `c${pub.handNo}-${pub.round}`, title: `名次 ${rank} 有衝突（${rivals.join('、')}）`, deadline: pub.deadline };
+  }
+  const r = pub.swap?.requests.find((x) => x.status === 'challenge' && (x.from === me || x.to === me) && !x.submitted.includes(me));
+  if (r) {
+    const other = nameOf(pub, r.from === me ? r.to : r.from);
+    const title = r.from === me ? `挑戰 ${other}：搶下對方的名次` : `${other} 向你挑戰：守住你的名次`;
+    return { key: `s${pub.handNo}-${pub.round}-${r.id}`, title, deadline: r.deadline };
+  }
+  return null;
+}
+
+/** Renders the persistence window. The slider has no scale and no numbers. */
+export function persistWindow(ctx: Ctx, p: PersistPrompt): string {
+  const budget =
+    ctx.priv.budget == null
+      ? ''
+      : `<div class="label">剩餘執著度</div><div class="budget big"><div style="width:${Math.round(ctx.priv.budget * 100)}%"></div></div>`;
+  return `<div class="modal"><div class="dialog">
+    <h2>${p.title}</h2>
+    ${countdown(p.deadline, 10_000)}
+    <p class="hint">你有多執著？往右拉越執著。${ctx.priv.budget == null ? '' : '投入的量會從預算扣除，輸了也一樣。'}</p>
+    <div class="slider-wrap"><span>放手</span><input type="range" min="0" max="1000" step="1" data-act="slider"><span>死守</span></div>
+    ${budget}
+    <button class="primary big" data-act="persist">送出</button>
+  </div></div>`;
+}
+
+/** Renders the showdown: true order, picks and the result. */
+export function showdownView(ctx: Ctx): string {
+  const { pub, isHost } = ctx;
+  const sd = pub.showdown!;
+  const ids = pub.seats.map((s) => s.id).filter((id) => sd.entries[id]);
+  const byRank = ids.slice().sort((a, b) => sd.ranks[b]! - sd.ranks[a]!);
+  const rows = byRank
+    .map((id) => {
+      const e = sd.entries[id]!;
+      // Valid ranks for a player: after all weaker hands, up to the last equal hand.
+      const weaker = ids.filter((x) => sd.entries[x]!.score < e.score).length;
+      const notStronger = ids.filter((x) => sd.entries[x]!.score <= e.score).length;
+      const r = sd.ranks[id]!;
+      const ok = r > weaker && r <= notStronger;
+      const truth = weaker + 1 === notStronger ? `${notStronger}` : `${weaker + 1}–${notStronger}`;
+      return `<tr class="${ok ? 'ok' : 'bad'}${id === ctx.me ? ' me' : ''}"><td class="num">${r}</td><td>${nameOf(pub, id)}</td>
+        <td class="hand">${e.hole.map(card).join('')}</td><td>${e.category}</td><td class="num">${truth}</td><td>${ok ? '✓' : '✗'}</td></tr>`;
+    })
+    .join('');
+  const nextLabel = pub.matchOver ? '查看結果' : '下一局';
+  return `<div class="result ${sd.success ? 'ok' : 'bad'}">${sd.success ? '成功！排序完全正確' : '失敗，排序有錯'}</div>
+    <div class="board">${pub.board.map(card).join('')}</div>
+    <table class="showdown"><thead><tr><th>名次</th><th>玩家</th><th>手牌</th><th>牌型</th><th>正解</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+    ${isHost ? `<button class="primary big" data-act="next">${nextLabel}</button>` : '<p class="hint center">等待房主繼續…</p>'}`;
+}
+
+/** Renders the end of the match. */
+export function matchEnd(ctx: Ctx): string {
+  const { pub, isHost } = ctx;
+  const won = pub.score.wins > pub.score.losses;
+  return `<div class="result ${won ? 'ok' : 'bad'} huge">${won ? '全隊勝利' : '全隊落敗'}</div>
+    <p class="center">勝 ${pub.score.wins} / 敗 ${pub.score.losses}</p>
+    ${isHost ? '<button class="primary big" data-act="next">再玩一場</button>' : '<p class="hint center">等待房主開新的一場…</p>'}`;
+}
