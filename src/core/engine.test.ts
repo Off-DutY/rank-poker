@@ -137,6 +137,21 @@ describe('pick phase', () => {
     expect(t.act('P1', { type: 'pick', rank: 3 })).toBe(false);
   });
 
+  it('lets a player unlock and change the pick while others are still picking', () => {
+    t.act('P0', { type: 'pick', rank: 1 });
+    t.act('P0', { type: 'lock' });
+    expect(t.act('P0', { type: 'unlock' })).toBe(true);
+    expect(t.act('P0', { type: 'unlock' })).toBe(false);
+    expect(t.act('P0', { type: 'pick', rank: 3 })).toBe(true);
+    t.act('P0', { type: 'lock' });
+    expect(t.s.picks.P0).toEqual({ rank: 3, locked: true });
+  });
+
+  it('cannot unlock after the last player locks', () => {
+    t.pickAll({ P0: 1, P1: 2, P2: 3, P3: 4 });
+    expect(t.act('P0', { type: 'unlock' })).toBe(false);
+  });
+
   it('goes to the swap phase when all lock distinct ranks', () => {
     t.pickAll({ P0: 1, P1: 2, P2: 3, P3: 4 });
     expect(t.s.phase).toBe('SWAP');

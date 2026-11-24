@@ -109,6 +109,7 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
         break;
       case 'start':
       case 'lock':
+      case 'unlock':
       case 'next':
         session.act({ type: d.act });
         break;

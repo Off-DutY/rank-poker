@@ -162,3 +162,27 @@ button.chip { border-color: var(--gold); }
 .history small { font-size: 11px; margin-left: 2px; }
 .history .up { color: var(--gold); }
 .history .down { color: #8ecae6; }
+
+/* Previous rank on chips */
+.chip .prev { font-size: 11px; margin-left: 4px; padding: 0 5px; border-radius: 6px; background: rgba(0, 0, 0, 0.25); color: var(--muted); }
+.chip.me .prev { background: rgba(0, 0, 0, 0.15); color: #1d1d1d; }
+
+/* Contested rank */
+.contest { display: grid; justify-items: center; gap: 2px; margin: 4px 0 10px; }
+.contest .label { margin: 0; }
+.contest-rank { font-size: 56px; font-weight: 900; line-height: 1; color: var(--gold); display: inline-grid; justify-items: center; }
+.contest-rank small { font-size: 14px; font-weight: 700; color: var(--text); }
+.rivals { width: 100%; border-collapse: collapse; font-size: 14px; margin-bottom: 6px; }
+.rivals th, .rivals td { padding: 4px 6px; border-bottom: 1px solid var(--line); text-align: left; }
+.rivals th { color: var(--muted); font-weight: 400; font-size: 12px; }
+.rivals tr.me td { background: rgba(142, 202, 230, 0.12); }
+.duel { display: flex; align-items: stretch; gap: 8px; margin: 8px 0; }
+.duel .side { flex: 1; text-align: center; padding: 8px; border-radius: 10px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--line); }
+.duel .side.focus { border-color: var(--gold); background: rgba(233, 196, 106, 0.18); }
+.duel .who { font-size: 13px; color: var(--muted); }
+.duel .big-rank { font-size: 32px; font-weight: 900; line-height: 1.1; display: grid; justify-items: center; }
+.duel .big-rank small { font-size: 11px; font-weight: 400; color: var(--muted); }
+.duel .side.focus .big-rank { color: var(--gold); }
+.duel .trail { font-size: 12px; color: var(--muted); }
+.duel .vs { align-self: center; font-size: 20px; color: var(--muted); }
+.showdown td.rank-cell small { display: block; font-size: 10px; font-weight: 400; color: var(--muted); }

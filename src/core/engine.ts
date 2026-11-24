@@ -112,6 +112,7 @@ export type PlayerAction =
   | { type: 'start' }
   | { type: 'pick'; rank: number }
   | { type: 'lock' }
+  | { type: 'unlock' }
   | { type: 'persist'; value: number }
   | { type: 'swapRequest'; targetId: PlayerId }
   | { type: 'swapRespond'; requestId: number; accept: boolean }
@@ -218,6 +219,8 @@ function apply(s: GameState, a: Action, now: number, rng: Rng): boolean {
       return pick(s, a.id, a.rank);
     case 'lock':
       return lock(s, a.id, now, rng);
+    case 'unlock':
+      return unlock(s, a.id);
     case 'persist':
       return persist(s, a.id, a.value, now, rng);
     case 'swapRequest':
@@ -294,6 +297,14 @@ function lock(s: GameState, id: PlayerId, now: number, rng: Rng): boolean {
   if (s.phase !== 'PICK' || !p || p.locked || p.rank == null) return false;
   p.locked = true;
   if (Object.values(s.picks).every((x) => x.locked)) finishPick(s, now, rng);
+  return true;
+}
+
+/** Unlocks a pick. Possible only while the pick phase runs, which means at least 1 player has not locked. */
+function unlock(s: GameState, id: PlayerId): boolean {
+  const p = s.picks[id];
+  if (s.phase !== 'PICK' || !p || !p.locked) return false;
+  p.locked = false;
   return true;
 }
 

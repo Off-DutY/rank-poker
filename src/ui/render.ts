@@ -103,11 +103,45 @@ export function cards(ctx: Ctx): string {
     <div class="mine"><div class="hole">${hole}</div><div class="mine-side"><span class="label">你的手牌</span>${budget}</div></div>`;
 }
 
-function chip(ctx: Ctx, id: PlayerId, extra = '', attrs = ''): string {
+/** Returns the "smallest" / "largest" hint for a rank, or an empty string. */
+function rankHint(r: number, n: number): string {
+  return r === n ? '<small>最大</small>' : r === 1 ? '<small>最小</small>' : '';
+}
+
+/** Returns the player's rank at the end of the previous round, or null in round 1. */
+function lastRank(pub: PublicState, id: PlayerId): number | null {
+  return pub.history[id]?.at(-1) ?? null;
+}
+
+/** Renders the player's ranks of the finished rounds in this hand, for example "3→1". */
+function trail(pub: PublicState, id: PlayerId): string {
+  const h = pub.history[id] ?? [];
+  return h.length ? h.join('→') : '—';
+}
+
+function chip(ctx: Ctx, id: PlayerId, extra = '', attrs = '', showLast = false): string {
   const seat = ctx.pub.seats.find((s) => s.id === id);
   const cls = ['chip', id === ctx.me ? 'me' : '', seat?.connected === false ? 'off' : '', extra].filter(Boolean).join(' ');
   const tag = attrs ? 'button' : 'span';
-  return `<${tag} class="${cls}" ${attrs}>${nameOf(ctx.pub, id)}</${tag}>`;
+  const last = showLast ? lastRank(ctx.pub, id) : null;
+  const badge = last == null ? '' : `<small class="prev" title="上一輪名次">前 ${last}</small>`;
+  return `<${tag} class="${cls}" ${attrs}>${nameOf(ctx.pub, id)}${badge}</${tag}>`;
+}
+
+/**
+ * Renders 2 players side by side with their current rank and rank trail.
+ * `focus` is the rank being fought for; it gets the strong highlight.
+ */
+function duel(ctx: Ctx, a: PlayerId, b: PlayerId, focus: number): string {
+  const n = ctx.pub.seats.length;
+  const side = (id: PlayerId) => {
+    const r = ctx.pub.ranks[id]!;
+    return `<div class="side${r === focus ? ' focus' : ''}">
+      <div class="who">${id === ctx.me ? '你' : nameOf(ctx.pub, id)}</div>
+      <div class="big-rank">${r}${rankHint(r, n)}</div>
+      <div class="trail">歷程 ${trail(ctx.pub, id)}</div></div>`;
+  };
+  return `<div class="duel">${side(a)}<div class="vs">⇄</div>${side(b)}</div>`;
 }
 
 /** Renders the rank ladder for PICK and PERSIST: who picked which rank. */
@@ -124,19 +158,19 @@ export function pickLadder(ctx: Ctx): string {
       .map((id) => {
         const p = pub.picks[id]!;
         const done = pub.conflict?.submitted.includes(id);
-        return chip(ctx, id, (p.locked ? 'locked' : '') + (done ? ' done' : ''));
+        return chip(ctx, id, (p.locked ? 'locked' : '') + (done ? ' done' : ''), '', true);
       })
       .join('');
     const cls = ['rung', myPick?.rank === r ? 'mine' : '', conflicted.has(r) ? 'conflict' : ''].filter(Boolean).join(' ');
     rows.push(`<button class="${cls}" data-act="pick" data-rank="${r}" ${canPick ? '' : 'disabled'}>
-      <span class="num">${r}${r === n ? '<small>最大</small>' : r === 1 ? '<small>最小</small>' : ''}</span>
+      <span class="num">${r}${rankHint(r, n)}</span>
       <span class="chips">${chips}</span></button>`);
   }
-  const unpicked = pub.seats.filter((s) => pub.picks[s.id]?.rank == null).map((s) => chip(ctx, s.id));
+  const unpicked = pub.seats.filter((s) => pub.picks[s.id]?.rank == null).map((s) => chip(ctx, s.id, '', '', true));
   const footer =
     pub.phase === 'PICK'
       ? myPick?.locked
-        ? '<p class="hint center">已鎖定，等待其他玩家…</p>'
+        ? '<p class="hint center">已鎖定，等待其他玩家…</p><button class="big" data-act="unlock">解除鎖定</button>'
         : `<button class="primary big" data-act="lock" ${myPick?.rank == null ? 'disabled' : ''}>鎖定名次</button>`
       : '<p class="hint center">名次衝突：相關玩家正在表達執著度…</p>';
   return `${countdown(pub.deadline, pub.phase === 'PICK' ? 20_000 : 10_000)}
@@ -176,7 +210,7 @@ export function swapView(ctx: Ctx, now: number): string {
     const can = id !== me && timeLeft && !iAmBusy && !busy(pub, id) && !usedPair(id);
     const extra = (busy(pub, id) ? 'busy' : '') + (swap.done[id] ? ' done' : '');
     const c = can ? chip(ctx, id, extra, `data-act="swapReq" data-target="${id}"`) : chip(ctx, id, extra);
-    rows.push(`<div class="rung${id === me ? ' mine' : ''}"><span class="num">${r}${r === n ? '<small>最大</small>' : r === 1 ? '<small>最小</small>' : ''}</span><span class="chips">${c}</span></div>`);
+    rows.push(`<div class="rung${id === me ? ' mine' : ''}"><span class="num">${r}${rankHint(r, n)}</span><span class="chips">${c}</span></div>`);
   }
   const mine = swap.requests.filter((r) => ACTIVE.has(r.status) && (r.from === me || r.to === me)).map((r) => myRequest(ctx, r));
   const log = swap.requests
@@ -198,13 +232,13 @@ function myRequest(ctx: Ctx, r: PublicSwapRequest): string {
   const other = nameOf(pub, r.from === me ? r.to : r.from);
   let body = '';
   if (r.status === 'pending' && r.to === me) {
-    body = `<b>${other}</b> 想和你交換名次（${pub.ranks[r.from]} ↔ ${pub.ranks[r.to]}）
+    body = `<b>${other}</b> 想和你交換名次${duel(ctx, r.from, r.to, pub.ranks[r.to]!)}
       <div class="row"><button class="primary" data-act="swapResp" data-req="${r.id}" data-accept="1">同意</button>
       <button data-act="swapResp" data-req="${r.id}" data-accept="0">拒絕</button></div>`;
   } else if (r.status === 'pending') {
-    body = `等待 <b>${other}</b> 回應…`;
+    body = `等待 <b>${other}</b> 回應…${duel(ctx, r.from, r.to, pub.ranks[r.to]!)}`;
   } else if (r.status === 'deciding' && r.from === me) {
-    body = `<b>${other}</b> 拒絕了。要發起挑戰嗎？
+    body = `<b>${other}</b> 拒絕了。要發起挑戰嗎？${duel(ctx, r.from, r.to, pub.ranks[r.to]!)}
       <div class="row"><button class="primary" data-act="challenge" data-req="${r.id}">挑戰</button></div>`;
   } else if (r.status === 'deciding') {
     body = `你拒絕了 <b>${other}</b>，對方可能發起挑戰…`;
@@ -219,21 +253,30 @@ export interface PersistPrompt {
   key: string;
   title: string;
   deadline: number | null;
+  /** The rank being fought for. */
+  contested: number;
+  /** HTML that shows the players involved. */
+  detail: string;
 }
 
 /** Returns the open persistence window for this player, if any. */
 export function persistPrompt(ctx: Ctx): PersistPrompt | null {
   const { pub, me } = ctx;
   if (pub.phase === 'PERSIST' && pub.conflict?.participants.includes(me) && !pub.conflict.submitted.includes(me)) {
-    const rank = pub.picks[me]?.rank;
-    const rivals = pub.conflict.participants.filter((id) => id !== me && pub.picks[id]?.rank === rank).map((id) => nameOf(pub, id));
-    return { key: `c${pub.handNo}-${pub.round}`, title: `名次 ${rank} 有衝突（${rivals.join('、')}）`, deadline: pub.deadline };
+    const rank = pub.picks[me]!.rank!;
+    const ids = pub.conflict.participants.filter((id) => pub.picks[id]?.rank === rank);
+    const rows = ids
+      .map((id) => `<tr${id === me ? ' class="me"' : ''}><td>${id === me ? '你' : nameOf(pub, id)}</td><td>${trail(pub, id)}</td></tr>`)
+      .join('');
+    const detail = `<table class="rivals"><thead><tr><th>搶這個名次的玩家</th><th>前幾輪名次</th></tr></thead><tbody>${rows}</tbody></table>`;
+    return { key: `c${pub.handNo}-${pub.round}`, title: `${ids.length} 人搶同一個名次`, deadline: pub.deadline, contested: rank, detail };
   }
   const r = pub.swap?.requests.find((x) => x.status === 'challenge' && (x.from === me || x.to === me) && !x.submitted.includes(me));
   if (r) {
     const other = nameOf(pub, r.from === me ? r.to : r.from);
     const title = r.from === me ? `挑戰 ${other}：搶下對方的名次` : `${other} 向你挑戰：守住你的名次`;
-    return { key: `s${pub.handNo}-${pub.round}-${r.id}`, title, deadline: r.deadline };
+    const contested = pub.ranks[r.to]!;
+    return { key: `s${pub.handNo}-${pub.round}-${r.id}`, title, deadline: r.deadline, contested, detail: duel(ctx, r.from, r.to, contested) };
   }
   return null;
 }
@@ -247,6 +290,9 @@ export function persistWindow(ctx: Ctx, p: PersistPrompt): string {
   return `<div class="modal"><div class="dialog">
     <h2>${p.title}</h2>
     ${countdown(p.deadline, 10_000)}
+    <div class="contest"><span class="label">爭奪的名次</span><div class="contest-rank">${p.contested}${rankHint(p.contested, ctx.pub.seats.length)}</div>
+      <span class="label">1 最小 · ${ctx.pub.seats.length} 最大</span></div>
+    ${p.detail}
     <p class="hint">你有多執著？往右拉越執著。${ctx.priv.budget == null ? '' : '投入的量會從預算扣除，輸了也一樣。'}</p>
     <div class="slider-wrap"><span>放手</span><input type="range" min="0" max="1000" step="1" data-act="slider"><span>死守</span></div>
     ${budget}
@@ -269,7 +315,7 @@ export function showdownView(ctx: Ctx): string {
       const r = sd.ranks[id]!;
       const ok = r > weaker && r <= notStronger;
       const truth = weaker + 1 === notStronger ? `${notStronger}` : `${weaker + 1}–${notStronger}`;
-      return `<tr class="${ok ? 'ok' : 'bad'}${id === ctx.me ? ' me' : ''}"><td class="num">${r}</td><td>${nameOf(pub, id)}</td>
+      return `<tr class="${ok ? 'ok' : 'bad'}${id === ctx.me ? ' me' : ''}"><td class="num rank-cell">${r}${rankHint(r, ids.length)}</td><td>${nameOf(pub, id)}</td>
         <td class="hand">${e.hole.map(card).join('')}</td><td>${e.category}</td><td class="num">${truth}</td><td>${ok ? '✓' : '✗'}</td></tr>`;
     })
     .join('');
