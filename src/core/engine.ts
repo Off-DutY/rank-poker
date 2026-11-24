@@ -19,6 +19,8 @@ export const RULES = {
   loseTarget: 3,
   maxSwapSeconds: 180,
   maxIntroSeconds: 5,
+  /** Extra intro time when new board cards are revealed, for the big reveal effect. Only when the intro is on. */
+  boardRevealMs: 2_000,
   maxNameLength: 12,
 } as const;
 
@@ -295,8 +297,9 @@ function updateSettings(s: GameState, patch: Partial<Settings>): boolean {
 }
 
 /** Starts the intro pause of a timed phase and returns the time when the phase timer starts. */
-function startTimer(s: GameState, now: number): number {
-  s.startsAt = now + s.settings.introSeconds * 1000;
+function startTimer(s: GameState, now: number, revealMs = 0): number {
+  const intro = s.settings.introSeconds * 1000;
+  s.startsAt = now + (intro > 0 ? intro + revealMs : 0);
   return s.startsAt;
 }
 
@@ -320,7 +323,8 @@ function startPick(s: GameState, now: number): void {
   s.picks = Object.fromEntries(s.seats.map((x) => [x.id, { rank: s.ranks[x.id] ?? null, locked: false }]));
   s.conflict = null;
   s.swap = null;
-  s.deadline = startTimer(s, now) + RULES.pickMs;
+  // Rounds 2-4 reveal board cards: give the reveal effect its own time before the announcement.
+  s.deadline = startTimer(s, now, s.round >= 2 ? RULES.boardRevealMs : 0) + RULES.pickMs;
 }
 
 function pick(s: GameState, id: PlayerId, rank: number): boolean {

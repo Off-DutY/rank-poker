@@ -443,6 +443,16 @@ describe('intro pause', () => {
     expect(t.act('P0', { type: 'swapDone', done: true })).toBe(false);
   });
 
+  it('adds the board reveal time to the intro of rounds 2-4 only', () => {
+    const t = new Table(3, { introSeconds: 2, swapSeconds: 0 });
+    t.act('P0', { type: 'start' });
+    expect(t.s.startsAt).toBe(t.now + 2_000);
+    t.now += 2_000;
+    t.pickAll({ P0: 1, P1: 2, P2: 3 });
+    expect(t.s.round).toBe(2);
+    expect(t.s.startsAt).toBe(t.now + 2_000 + RULES.boardRevealMs);
+  });
+
   it('does not let a timeout fire during the intro', () => {
     const t = new Table(3, { introSeconds: 5 });
     t.act('P0', { type: 'start' });

@@ -1,4 +1,4 @@
-import type { NotifyStyle } from '../core/engine';
+import { type NotifyStyle, RULES } from '../core/engine';
 import type { Announcement, AnnouncementKind } from './events';
 import { esc } from './render';
 import { playCue, vibrateCue } from './sound';
@@ -41,7 +41,9 @@ export function createAnnouncer(
   popup: HTMLElement,
   ticker: HTMLElement,
   hostNow: () => number,
-): { push(items: Announcement[], until: number | null, opts: NotifyOptions, preview?: boolean, extraHtml?: string): void } {
+): {
+  push(items: Announcement[], until: number | null, opts: NotifyOptions, preview?: boolean, extraHtml?: string, delayMs?: number): void;
+} {
   const queue: Page[] = [];
   let timer: ReturnType<typeof setTimeout> | null = null;
 
@@ -86,7 +88,7 @@ export function createAnnouncer(
   };
 
   return {
-    push(items, until, opts, preview = false, extraHtml = '') {
+    push(items, until, opts, preview = false, extraHtml = '', delayMs = 0) {
       const latest = items.at(-1);
       if (!latest) return;
       if (!preview) {
@@ -101,8 +103,9 @@ export function createAnnouncer(
         // A phase start is the most important news: drop older pages and show it now.
         queue.length = 0;
         if (timer) clearTimeout(timer);
-        timer = null;
-        show(page);
+        hide();
+        // Wait for the board reveal to end, so the full intro bar shows after it.
+        timer = setTimeout(() => show(page), delayMs);
         return;
       }
       queue.push(page);
@@ -157,7 +160,8 @@ export function pop(el: Element | null): void {
   el.classList.add('pop');
 }
 
-const BURST_MS = 1_900;
+/** The reveal ends a little before the extra intro time of the engine ends. */
+const BURST_MS = RULES.boardRevealMs - 100;
 
 /**
  * Shows new board cards large in the middle of the screen, flipping in with a shine, then fades out.

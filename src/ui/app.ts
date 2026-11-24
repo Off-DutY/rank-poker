@@ -1,5 +1,5 @@
 import QRCode from 'qrcode';
-import type { NotifyStyle, PublicState } from '../core/engine';
+import { type NotifyStyle, type PublicState, RULES } from '../core/engine';
 import type { Session } from '../net/session';
 import { boardBurst, captureChips, createAnnouncer, dealCards, flashChips, playChipMoves, pop } from './effects';
 import { type Announcement, diffEvents } from './events';
@@ -14,6 +14,8 @@ const REJECT_TEXT: Record<string, string> = {
 };
 
 const NO_HOST_HINT_MS = 15_000;
+/** Titles of the big board reveal, by round. */
+const BOARD_TITLES: Record<number, string> = { 2: '翻牌！', 3: '轉牌！', 4: '河牌！' };
 const REFRESH_MS = 100;
 
 /**
@@ -121,7 +123,7 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
       // Only the newly revealed cards; the slots after them are still card backs.
       const fresh = [...main.querySelectorAll('.board .card')].slice(fx.board, pub.board.length);
       // The flop and the turn get a big center effect; the cards land on the table after it.
-      const title = pub.round === 2 ? '翻牌！' : pub.round === 3 ? '轉牌！' : null;
+      const title = BOARD_TITLES[pub.round] ?? null;
       if (title) boardBurst(root, title, fresh.map((c) => c.outerHTML));
       dealCards(fresh, title ? 1_500 : 0);
     }
@@ -246,7 +248,10 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
       const items = diffEvents(lastPub, pub, session.me);
       // A new intro pause means a timed phase starts: keep its announcements up until the timer starts.
       const until = pub.startsAt != null && pub.startsAt !== lastPub?.startsAt && pub.startsAt > session.hostNow() ? pub.startsAt : null;
-      if (items.length) announcer.push(items, until, notifyOptions(pub), false, until != null ? rankChangeHtml(pub, session.me) : '');
+      // New board cards play the big reveal first; the announcement waits until it ends.
+      const reveal = until != null && lastPub != null && pub.board.length > lastPub.board.length && BOARD_TITLES[pub.round] != null;
+      const extra = until != null ? rankChangeHtml(pub, session.me) : '';
+      if (items.length) announcer.push(items, until, notifyOptions(pub), false, extra, reveal ? RULES.boardRevealMs : 0);
       lastPub = pub;
     }
     render();
