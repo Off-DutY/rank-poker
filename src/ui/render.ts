@@ -173,13 +173,32 @@ function trail(pub: PublicState, id: PlayerId): string {
   return h.length ? h.join('→') : '—';
 }
 
-function chip(ctx: Ctx, id: PlayerId, extra = '', attrs = '', showLast = false): string {
+/** What a chip shows next to the name. */
+type ChipBadge =
+  | { kind: 'none' }
+  /** The previous round rank. With `pick` larger than it, the chip marks the rise. */
+  | { kind: 'last'; pick: number | null }
+  /** Ranks of the finished rounds, then the current rank. */
+  | { kind: 'trail' };
+
+function chip(ctx: Ctx, id: PlayerId, extra = '', attrs = '', badge: ChipBadge = { kind: 'none' }): string {
   const seat = ctx.pub.seats.find((s) => s.id === id);
-  const cls = ['chip', id === ctx.me ? 'me' : '', seat?.connected === false ? 'off' : '', extra].filter(Boolean).join(' ');
+  const classes = ['chip', id === ctx.me ? 'me' : '', seat?.connected === false ? 'off' : '', extra];
+  let small = '';
+  if (badge.kind === 'last') {
+    const last = lastRank(ctx.pub, id);
+    if (last != null && badge.pick != null && badge.pick > last) {
+      classes.push('rise');
+      small = `<small class="prev" title="上一輪名次">前 ${last} <b class="rise-mark">↑+${badge.pick - last}</b></small>`;
+    } else if (last != null) {
+      small = `<small class="prev" title="上一輪名次">前 ${last}</small>`;
+    }
+  } else if (badge.kind === 'trail') {
+    const ranks = [...(ctx.pub.history[id] ?? []), ctx.pub.ranks[id]].filter((r) => r != null);
+    if (ranks.length > 1) small = `<small class="prev" title="名次歷程">${ranks.join('→')}</small>`;
+  }
   const tag = attrs ? 'button' : 'span';
-  const last = showLast ? lastRank(ctx.pub, id) : null;
-  const badge = last == null ? '' : `<small class="prev" title="上一輪名次">前 ${last}</small>`;
-  return `<${tag} class="${cls}" data-pid="${id}" ${attrs}>${nameOf(ctx.pub, id)}${badge}</${tag}>`;
+  return `<${tag} class="${classes.filter(Boolean).join(' ')}" data-pid="${id}" ${attrs}>${nameOf(ctx.pub, id)}${small}</${tag}>`;
 }
 
 /**
@@ -212,7 +231,7 @@ export function pickLadder(ctx: Ctx): string {
       .map((id) => {
         const p = pub.picks[id]!;
         const done = pub.conflict?.submitted.includes(id);
-        return chip(ctx, id, (p.locked ? 'locked' : '') + (done ? ' done' : ''), '', true);
+        return chip(ctx, id, (p.locked ? 'locked' : '') + (done ? ' done' : ''), '', { kind: 'last', pick: p.rank });
       })
       .join('');
     const cls = ['rung', myPick?.rank === r ? 'mine' : '', conflicted.has(r) ? 'conflict' : ''].filter(Boolean).join(' ');
@@ -220,7 +239,7 @@ export function pickLadder(ctx: Ctx): string {
       <span class="num">${r}${rankHint(r, n)}</span>
       <span class="chips">${chips}</span></button>`);
   }
-  const unpicked = pub.seats.filter((s) => pub.picks[s.id]?.rank == null).map((s) => chip(ctx, s.id, '', '', true));
+  const unpicked = pub.seats.filter((s) => pub.picks[s.id]?.rank == null).map((s) => chip(ctx, s.id, '', '', { kind: 'last', pick: null }));
   const footer =
     pub.phase === 'PICK'
       ? myPick?.locked
@@ -263,7 +282,9 @@ export function swapView(ctx: Ctx, now: number): string {
     if (!id) continue;
     const can = id !== me && timeLeft && !iAmBusy && !busy(pub, id) && !usedPair(id);
     const extra = (busy(pub, id) ? 'busy' : '') + (swap.done[id] ? ' done' : '');
-    const c = can ? chip(ctx, id, extra, `data-act="swapReq" data-target="${id}"`) : chip(ctx, id, extra);
+    const c = can
+      ? chip(ctx, id, extra, `data-act="swapReq" data-target="${id}"`, { kind: 'trail' })
+      : chip(ctx, id, extra, '', { kind: 'trail' });
     rows.push(`<div class="rung${id === me ? ' mine' : ''}"><span class="num">${r}${rankHint(r, n)}</span><span class="chips">${c}</span></div>`);
   }
   const mine = swap.requests.filter((r) => ACTIVE.has(r.status) && (r.from === me || r.to === me)).map((r) => myRequest(ctx, r));

@@ -276,3 +276,32 @@ button.chip { border-color: var(--gold); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-delay: 0s !important; animation-iteration-count: 1 !important; transition: none !important; }
 }
+
+/* Larger rank than last round: gold glow that stays, a flash when it happens */
+.chip.rise { border-color: var(--gold); box-shadow: 0 0 0 2px rgba(233, 196, 106, 0.55), 0 0 14px rgba(233, 196, 106, 0.55); animation: riseGlow 1.4s ease-in-out infinite alternate; }
+.chip .rise-mark { color: var(--gold); font-weight: 900; }
+.chip.me .rise-mark { color: #7a4b00; }
+.chip.rise-pop { animation: risePop 0.9s cubic-bezier(.2,.8,.2,1); }
+@keyframes riseGlow { from { box-shadow: 0 0 0 2px rgba(233, 196, 106, 0.4), 0 0 6px rgba(233, 196, 106, 0.3); } to { box-shadow: 0 0 0 3px rgba(233, 196, 106, 0.8), 0 0 18px rgba(233, 196, 106, 0.7); } }
+@keyframes risePop { 0% { transform: scale(1); } 25% { transform: scale(1.45) translateY(-4px); box-shadow: 0 0 0 6px rgba(233, 196, 106, 0.9), 0 0 30px rgba(233, 196, 106, 0.9); } 100% { transform: none; } }
+
+/* Swap: both chips flash with a swap mark */
+.chip.swapped { position: relative; animation: swapFlash 1.4s ease-out; }
+.chip.swapped::before { content: "⇄"; position: absolute; left: -18px; top: 50%; transform: translateY(-50%); color: var(--gold); font-weight: 900; animation: fadeOut 1.4s ease-out forwards; }
+@keyframes swapFlash { 0%, 30% { background: var(--gold); color: #1d1d1d; transform: scale(1.3); box-shadow: 0 0 24px rgba(233, 196, 106, 0.9); } 100% { transform: none; } }
+@keyframes fadeOut { 0%, 60% { opacity: 1; } 100% { opacity: 0; } }
+
+/* Flop and turn: big center reveal */
+.burst { position: fixed; inset: 0; z-index: 30; pointer-events: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; background: radial-gradient(circle, rgba(70, 52, 12, 0.97), rgba(5, 18, 13, 0.98) 65%); animation: burstLife 1.9s ease-in-out both; }
+.burst-title { font-size: 44px; font-weight: 900; color: var(--gold); letter-spacing: 6px; text-shadow: 0 0 24px rgba(233, 196, 106, 0.8); animation: burstTitle 0.6s cubic-bezier(.2,.8,.2,1) both; }
+.burst-cards { display: flex; gap: 12px; perspective: 800px; }
+.burst-slot { animation: burstFlip 0.7s cubic-bezier(.2,.8,.2,1) both; position: relative; overflow: hidden; border-radius: 12px; }
+.burst-slot .card { width: 84px; height: 118px; font-size: 34px; border-radius: 12px; box-shadow: 0 0 30px rgba(233, 196, 106, 0.7); animation: none; }
+.burst-slot .card small { font-size: 30px; }
+.burst-slot::after { content: ""; position: absolute; inset: 0; background: linear-gradient(110deg, transparent 30%, rgba(255, 255, 255, 0.85) 50%, transparent 70%); transform: translateX(-120%); animation: shine 0.9s ease-out 0.7s forwards; }
+@keyframes burstLife { 0% { opacity: 0; } 12% { opacity: 1; } 78% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes burstTitle { from { opacity: 0; transform: scale(2.2); } to { opacity: 1; transform: none; } }
+@keyframes burstFlip { from { opacity: 0; transform: rotateY(180deg) scale(0.4) translateY(60px); } to { opacity: 1; transform: none; } }
+@keyframes shine { to { transform: translateX(120%); } }
+/* The flop or turn effect takes the stage; the announcement shows again after it. */
+#app:has(.burst) #announce { visibility: hidden; }

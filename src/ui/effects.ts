@@ -154,3 +154,33 @@ export function pop(el: Element | null): void {
   void (el as HTMLElement).offsetWidth;
   el.classList.add('pop');
 }
+
+const BURST_MS = 1_900;
+
+/**
+ * Shows new board cards large in the middle of the screen, flipping in with a shine, then fades out.
+ * Used for the flop and the turn. It never catches clicks.
+ */
+export function boardBurst(host: HTMLElement, title: string, cardsHtml: string[]): void {
+  if (reducedMotion()) return;
+  const el = document.createElement('div');
+  el.className = 'burst';
+  el.setAttribute('aria-hidden', 'true');
+  el.innerHTML = `<div class="burst-title">${esc(title)}</div><div class="burst-cards">${cardsHtml
+    .map((c, i) => `<div class="burst-slot" style="animation-delay:${200 + i * 180}ms">${c}</div>`)
+    .join('')}</div>`;
+  host.append(el);
+  setTimeout(() => el.remove(), BURST_MS);
+}
+
+/** Plays a one-time effect class on the chips of the given players. */
+export function flashChips(root: HTMLElement, ids: Iterable<string>, cls: string): void {
+  if (reducedMotion()) return;
+  for (const id of ids) {
+    const el = root.querySelector(`.ladder [data-pid="${id}"]`);
+    if (!el) continue;
+    el.classList.remove(cls);
+    void (el as HTMLElement).offsetWidth;
+    el.classList.add(cls);
+  }
+}

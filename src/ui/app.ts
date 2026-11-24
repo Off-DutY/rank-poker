@@ -1,7 +1,7 @@
 import QRCode from 'qrcode';
 import type { NotifyStyle, PublicState } from '../core/engine';
 import type { Session } from '../net/session';
-import { captureChips, createAnnouncer, dealCards, playChipMoves, pop } from './effects';
+import { boardBurst, captureChips, createAnnouncer, dealCards, flashChips, playChipMoves, pop } from './effects';
 import { type Announcement, diffEvents } from './events';
 import { unlockAudio } from './sound';
 import { type Ctx, cards, header, historyTable, lobby, matchEnd, persistPrompt, persistWindow, pickLadder, showdownView, swapView } from './render';
@@ -28,7 +28,14 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
     session.hostNow(),
   );
   // What the screen showed last time. Effects play only for the parts that changed.
-  const fx = { phase: '', hand: 0, board: 0, locked: new Set<string>() };
+  const fx = {
+    phase: '',
+    hand: 0,
+    board: 0,
+    locked: new Set<string>(),
+    picks: {} as Record<string, number | null>,
+    ranks: {} as Record<string, number>,
+  };
   let lastPub: PublicState | null = null;
   const main = root.querySelector<HTMLElement>('#main')!;
   const overlay = root.querySelector<HTMLElement>('#overlay')!;
@@ -110,7 +117,23 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
       dealCards(main.querySelectorAll('.hole .card'));
       dealCards(main.querySelectorAll('.board .card'), 300);
     } else if (atTable && pub.board.length > fx.board) {
-      dealCards([...main.querySelectorAll('.board .card')].slice(fx.board));
+      // Only the newly revealed cards; the slots after them are still card backs.
+      const fresh = [...main.querySelectorAll('.board .card')].slice(fx.board, pub.board.length);
+      // The flop and the turn get a big center effect; the cards land on the table after it.
+      const title = pub.round === 2 ? '翻牌！' : pub.round === 3 ? '轉牌！' : null;
+      if (title) boardBurst(root, title, fresh.map((c) => c.outerHTML));
+      dealCards(fresh, title ? 1_500 : 0);
+    }
+    if (pub.phase === 'PICK' && fx.phase === 'PICK') {
+      // A player picked a larger rank than before: flash that chip.
+      const raised = Object.entries(pub.picks)
+        .filter(([id, p]) => p.rank != null && p.rank !== fx.picks[id] && p.rank > (pub.history[id]?.at(-1) ?? Infinity))
+        .map(([id]) => id);
+      flashChips(main, raised, 'rise-pop');
+    }
+    if (pub.phase === 'SWAP' && fx.phase === 'SWAP') {
+      const swapped = Object.keys(pub.ranks).filter((id) => fx.ranks[id] != null && fx.ranks[id] !== pub.ranks[id]);
+      flashChips(main, swapped, 'swapped');
     }
     const locked = new Set(Object.entries(pub.picks).filter(([, p]) => p.locked).map(([id]) => id));
     if (pub.phase === 'PICK') for (const id of locked) if (!fx.locked.has(id)) pop(main.querySelector(`.ladder [data-pid="${id}"]`));
@@ -118,6 +141,8 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
     fx.hand = atTable ? pub.handNo : fx.hand;
     fx.board = pub.board.length;
     fx.locked = locked;
+    fx.picks = Object.fromEntries(Object.entries(pub.picks).map(([id, p]) => [id, p.rank]));
+    fx.ranks = { ...pub.ranks };
   };
 
   const updateCountdowns = () => {
