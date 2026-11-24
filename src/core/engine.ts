@@ -96,6 +96,8 @@ export interface GameState {
   budgets: Record<PlayerId, number>;
   picks: Record<PlayerId, Pick>;
   ranks: Record<PlayerId, number>;
+  /** Final rank of each player at the end of each finished round in this hand. Index 0 is round 1. */
+  history: Record<PlayerId, number[]>;
   /** Players in the current conflict, with their bids. Set only in PERSIST. */
   conflict: { participants: PlayerId[]; bids: Record<PlayerId, Bid> } | null;
   swap: { requests: SwapRequest[]; done: Record<PlayerId, boolean>; nextId: number } | null;
@@ -149,6 +151,7 @@ export function createGame(hostId: PlayerId, hostName: string): GameState {
     budgets: {},
     picks: {},
     ranks: {},
+    history: {},
     conflict: null,
     swap: null,
     showdown: null,
@@ -264,6 +267,7 @@ function deal(s: GameState, now: number, rng: Rng): void {
   s.board = [];
   s.budgets = Object.fromEntries(s.seats.map((x) => [x.id, RULES.budgetPerHand]));
   s.ranks = {};
+  s.history = {};
   s.showdown = null;
   s.round = 1;
   startPick(s, now);
@@ -447,6 +451,7 @@ function checkSwapEnd(s: GameState, now: number): void {
 
 function advanceRound(s: GameState, now: number): void {
   s.swap = null;
+  for (const seat of s.seats) (s.history[seat.id] ??= []).push(s.ranks[seat.id]!);
   if (s.round < 4) {
     s.round += 1;
     s.board = s.fullBoard.slice(0, s.round + 1);
@@ -535,6 +540,8 @@ export interface PublicState {
   board: Card[];
   picks: Record<PlayerId, Pick>;
   ranks: Record<PlayerId, number>;
+  /** Final rank of each player per finished round in this hand. */
+  history: Record<PlayerId, number[]>;
   conflict: { participants: PlayerId[]; submitted: PlayerId[] } | null;
   swap: { requests: PublicSwapRequest[]; done: Record<PlayerId, boolean> } | null;
   showdown: Showdown | null;
@@ -562,6 +569,7 @@ export function publicView(s: GameState): PublicState {
     board: s.board.slice(),
     picks: structuredClone(s.picks),
     ranks: { ...s.ranks },
+    history: structuredClone(s.history),
     conflict: s.conflict && { participants: s.conflict.participants.slice(), submitted: Object.keys(s.conflict.bids) },
     swap: s.swap && {
       done: { ...s.swap.done },

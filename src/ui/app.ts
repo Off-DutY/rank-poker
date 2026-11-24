@@ -1,6 +1,6 @@
 import QRCode from 'qrcode';
 import type { Session } from '../net/session';
-import { type Ctx, cards, header, lobby, matchEnd, persistPrompt, persistWindow, pickLadder, showdownView, swapView } from './render';
+import { type Ctx, cards, header, historyTable, lobby, matchEnd, persistPrompt, persistWindow, pickLadder, showdownView, swapView } from './render';
 import { roomUrl } from './room';
 
 const REJECT_TEXT: Record<string, string> = {
@@ -65,7 +65,7 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
           ? showdownView(ctx)
           : v.pub.phase === 'MATCH_END'
             ? matchEnd(ctx)
-            : cards(ctx) + (v.pub.phase === 'SWAP' ? swapView(ctx, now) : pickLadder(ctx));
+            : cards(ctx) + (v.pub.phase === 'SWAP' ? swapView(ctx, now) : pickLadder(ctx)) + historyTable(ctx);
     set(main, body);
     const slot = main.querySelector('#qr-slot');
     if (slot && !slot.contains(qr)) slot.append(qr);

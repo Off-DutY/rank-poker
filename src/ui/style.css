@@ -151,3 +151,14 @@ button.chip { border-color: var(--gold); }
 .showdown tr.me td { background: rgba(142, 202, 230, 0.12); }
 .showdown .hand .card { width: 30px; height: 42px; font-size: 13px; }
 .showdown .hand .card small { font-size: 12px; }
+
+/* Rank history */
+.history { margin-top: 14px; overflow-x: auto; }
+.history table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.history th, .history td { padding: 4px 6px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+.history th { color: var(--muted); font-weight: 400; font-size: 12px; }
+.history td.num { text-align: center; font-weight: 700; }
+.history tr.me td { background: rgba(142, 202, 230, 0.12); }
+.history small { font-size: 11px; margin-left: 2px; }
+.history .up { color: var(--gold); }
+.history .down { color: #8ecae6; }

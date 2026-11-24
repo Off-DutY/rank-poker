@@ -118,7 +118,7 @@ export function pickLadder(ctx: Ctx): string {
   const canPick = pub.phase === 'PICK' && myPick && !myPick.locked;
   const conflicted = new Set(pub.conflict?.participants.map((id) => pub.picks[id]?.rank) ?? []);
   const rows: string[] = [];
-  for (let r = n; r >= 1; r--) {
+  for (let r = 1; r <= n; r++) {
     const ids = pub.seats.filter((s) => pub.picks[s.id]?.rank === r).map((s) => s.id);
     const chips = ids
       .map((id) => {
@@ -170,7 +170,7 @@ export function swapView(ctx: Ctx, now: number): string {
   const usedPair = (id: PlayerId) => swap.requests.some((r) => (r.from === me && r.to === id) || (r.from === id && r.to === me));
   const iAmBusy = busy(pub, me);
   const rows: string[] = [];
-  for (let r = n; r >= 1; r--) {
+  for (let r = 1; r <= n; r++) {
     const id = pub.seats.find((s) => pub.ranks[s.id] === r)?.id;
     if (!id) continue;
     const can = id !== me && timeLeft && !iAmBusy && !busy(pub, id) && !usedPair(id);
@@ -259,7 +259,7 @@ export function showdownView(ctx: Ctx): string {
   const { pub, isHost } = ctx;
   const sd = pub.showdown!;
   const ids = pub.seats.map((s) => s.id).filter((id) => sd.entries[id]);
-  const byRank = ids.slice().sort((a, b) => sd.ranks[b]! - sd.ranks[a]!);
+  const byRank = ids.slice().sort((a, b) => sd.ranks[a]! - sd.ranks[b]!);
   const rows = byRank
     .map((id) => {
       const e = sd.entries[id]!;
@@ -277,7 +277,36 @@ export function showdownView(ctx: Ctx): string {
   return `<div class="result ${sd.success ? 'ok' : 'bad'}">${sd.success ? '成功！排序完全正確' : '失敗，排序有錯'}</div>
     <div class="board">${pub.board.map(card).join('')}</div>
     <table class="showdown"><thead><tr><th>名次</th><th>玩家</th><th>手牌</th><th>牌型</th><th>正解</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+    ${historyTable(ctx)}
     ${isHost ? `<button class="primary big" data-act="next">${nextLabel}</button>` : '<p class="hint center">等待房主繼續…</p>'}`;
+}
+
+/**
+ * Renders each player's final rank per finished round of this hand.
+ * Rows follow the latest rank, smallest first. Arrows show the change from the previous round.
+ */
+export function historyTable(ctx: Ctx): string {
+  const { pub, me } = ctx;
+  const rounds = Math.max(0, ...Object.values(pub.history).map((h) => h.length));
+  if (rounds === 0) return '';
+  const latest = (id: PlayerId) => pub.history[id]![rounds - 1] ?? Number.MAX_SAFE_INTEGER;
+  const ids = pub.seats.map((s) => s.id).filter((id) => pub.history[id]).sort((a, b) => latest(a) - latest(b));
+  const head = ROUND_NAMES.slice(1, rounds + 1).map((name) => `<th>${name}</th>`).join('');
+  const rows = ids
+    .map((id) => {
+      const h = pub.history[id]!;
+      const cells = h
+        .map((r, i) => {
+          const prev = h[i - 1];
+          const arrow = prev == null || prev === r ? '' : r > prev ? '<small class="up">↑</small>' : '<small class="down">↓</small>';
+          return `<td class="num">${r}${arrow}</td>`;
+        })
+        .join('');
+      return `<tr${id === me ? ' class="me"' : ''}><td>${nameOf(pub, id)}</td>${cells}</tr>`;
+    })
+    .join('');
+  return `<section class="history"><div class="label">各輪名次（每輪交換結束後）</div>
+    <table><thead><tr><th>玩家</th>${head}</tr></thead><tbody>${rows}</tbody></table></section>`;
 }
 
 /** Renders the end of the match. */

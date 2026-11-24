@@ -398,6 +398,25 @@ describe('showdown and match', () => {
   });
 });
 
+describe('rank history', () => {
+  it('records the final rank of every round, after swaps, and resets each hand', () => {
+    const t = new Table(3);
+    t.act('P0', { type: 'start' });
+    expect(t.s.history).toEqual({});
+    t.pickAll({ P0: 1, P1: 2, P2: 3 });
+    t.act('P0', { type: 'swapRequest', targetId: 'P2' });
+    t.act('P2', { type: 'swapRespond', requestId: 1, accept: true });
+    t.allDone();
+    expect(t.s.history).toEqual({ P0: [3], P1: [2], P2: [1] });
+    expect(publicView(t.s).history).toEqual(t.s.history);
+    for (let r = 2; r <= 4; r++) t.playQuietRound();
+    expect(t.s.phase).toBe('SHOWDOWN');
+    expect(t.s.history.P0).toEqual([3, 3, 3, 3]);
+    t.act('P0', { type: 'next' });
+    expect(t.s.history).toEqual({});
+  });
+});
+
 describe('views', () => {
   it('public view hides hole cards, the hidden board and bid amounts', () => {
     const t = new Table(3);
