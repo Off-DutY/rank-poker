@@ -483,21 +483,33 @@ export function rankChanges(pub: PublicState): { title: string; rows: RankChange
   return { title, rows };
 }
 
-/** Renders the rank change panel for the intro pause. Changed rows animate in one after another. */
+/** Returns the "smallest" / "largest" label placed before a rank, or an empty string. */
+function rankPrefix(r: number, n: number): string {
+  return r === n ? '<small class="rc-hint">最大</small>' : r === 1 ? '<small class="rc-hint">最小</small>' : '';
+}
+
+/**
+ * Renders the rank change panel for the intro pause.
+ * Rows first stand in their old order with the old rank, then all move at once to the new order
+ * and show the new rank (CSS only: each row knows its old index `--a` and new index `--b`).
+ */
 export function rankChangeHtml(pub: PublicState, me: PlayerId): string {
   const rc = rankChanges(pub);
   if (!rc) return '';
   const n = pub.seats.length;
+  // Old order: by old rank; equal old ranks (a conflict) keep the new order among them.
+  const oldOrder = rc.rows.slice().sort((x, y) => (x.from ?? x.to) - (y.from ?? y.to) || x.to - y.to);
   const rows = rc.rows
-    .map((r, i) => {
+    .map((r, b) => {
+      const a = oldOrder.indexOf(r);
       const moved = r.from != null && r.from !== r.to;
       const dir = !moved ? '' : r.to > r.from! ? 'up' : 'down';
       const arrow = dir === 'up' ? `↑${r.to - r.from!}` : dir === 'down' ? `↓${r.from! - r.to}` : '';
-      const from = moved ? `<span class="rc-from">${r.from}</span><span class="rc-to-arrow">→</span>` : '';
-      const same = r.from != null && !moved ? '<small>不變</small>' : '';
-      return `<li class="rc-row ${dir}${r.id === me ? ' me' : ''}" style="--i:${i}">
+      const old = r.from == null ? '' : `<span class="rc-old${moved ? ' moved' : ''}">${rankPrefix(r.from, n)}${r.from}</span>`;
+      const same = r.from != null && !moved ? '<small class="rc-same">不變</small>' : '';
+      return `<li class="rc-row ${dir}${r.id === me ? ' me' : ''}${r.from == null ? ' fresh' : ''}" style="--a:${a};--b:${b}">
         <span class="rc-name">${r.id === me ? '你' : nameOf(pub, r.id)}</span>
-        <span class="rc-ranks">${from}<b class="rc-to">${r.to}</b>${rankHint(r.to, n)}${same}</span>
+        <span class="rc-ranks">${old}<span class="rc-new">${rankPrefix(r.to, n)}<b class="rc-to">${r.to}</b></span>${same}</span>
         <span class="rc-arrow">${arrow}</span></li>`;
     })
     .join('');

@@ -39,6 +39,8 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
     ranks: {} as Record<string, number>,
   };
   let lastPub: PublicState | null = null;
+  /** Board cards held back until `at` (host time), so the rank results show before the reveal. */
+  const reveal = { at: 0, shown: 0, hand: 0, round: 0 };
   const main = root.querySelector<HTMLElement>('#main')!;
   const overlay = root.querySelector<HTMLElement>('#overlay')!;
   const url = roomUrl(code);
@@ -75,7 +77,11 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
       set(main, message('連線中…', slow ? '還找不到房主。請確認連結正確，且房主的網頁仍然開著。部分公司或行動網路無法建立 P2P 連線。' : '正在尋找房主。'));
       return;
     }
-    const ctx: Ctx = { me: session.me, isHost: session.isHost, pub: v.pub, priv: v.priv };
+    const now0 = session.hostNow();
+    // New board cards stay hidden until their reveal time: first the rank results, then the big reveal.
+    const hold = reveal.at > now0 && reveal.hand === v.pub.handNo && reveal.round === v.pub.round;
+    const shown: PublicState = hold ? { ...v.pub, board: v.pub.board.slice(0, reveal.shown) } : v.pub;
+    const ctx: Ctx = { me: session.me, isHost: session.isHost, pub: shown, priv: v.priv };
     set(hdr, header(ctx, code));
     const now = session.hostNow();
     // During the intro pause the host ignores actions, so the controls look paused too.
@@ -90,7 +96,7 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
             ? matchEnd(ctx)
             : cards(ctx) + changes + (v.pub.phase === 'SWAP' ? swapView(ctx, now) : pickLadder(ctx)) + historyTable(ctx);
     const before = captureChips(main);
-    if (set(main, body)) playEffects(v.pub, before);
+    if (set(main, body)) playEffects(shown, before);
     main.classList.toggle('intro', inIntro);
     const slot = main.querySelector('#qr-slot');
     if (slot && !slot.contains(qr)) slot.append(qr);
@@ -249,9 +255,17 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
       // A new intro pause means a timed phase starts: keep its announcements up until the timer starts.
       const until = pub.startsAt != null && pub.startsAt !== lastPub?.startsAt && pub.startsAt > session.hostNow() ? pub.startsAt : null;
       // New board cards play the big reveal first; the announcement waits until it ends.
-      const reveal = until != null && lastPub != null && pub.board.length > lastPub.board.length && BOARD_TITLES[pub.round] != null;
+      const newCards = until != null && lastPub != null && pub.board.length > lastPub.board.length && BOARD_TITLES[pub.round] != null;
       const extra = until != null ? rankChangeHtml(pub, session.me) : '';
-      if (items.length) announcer.push(items, until, notifyOptions(pub), false, extra, reveal ? RULES.boardRevealMs : 0);
+      if (newCards) {
+        // Order: rank results (announcement) first, then the big reveal in the last part of the intro.
+        reveal.at = pub.startsAt! - RULES.boardRevealMs;
+        reveal.shown = lastPub!.board.length;
+        reveal.hand = pub.handNo;
+        reveal.round = pub.round;
+      }
+      const announceUntil = newCards ? Math.max(session.hostNow(), reveal.at) : until;
+      if (items.length) announcer.push(items, announceUntil, notifyOptions(pub), false, extra);
       lastPub = pub;
     }
     render();
