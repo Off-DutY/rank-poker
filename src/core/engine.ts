@@ -66,7 +66,12 @@ export interface Seat {
   id: PlayerId;
   name: string;
   connected: boolean;
+  /** True for a computer player. The host browser plays it with public and own private data only. */
+  bot?: boolean;
 }
+
+/** Prefix of computer player IDs. */
+export const BOT_ID_PREFIX = 'bot-';
 
 /** A player's choice in the pick phase. */
 export interface Pick {
@@ -147,7 +152,11 @@ export type PlayerAction =
   | { type: 'swapRespond'; requestId: number; accept: boolean }
   | { type: 'swapChallenge'; requestId: number }
   | { type: 'swapDone'; done: boolean }
-  | { type: 'next' };
+  | { type: 'next' }
+  /** Host only, in the lobby: adds a computer player. */
+  | { type: 'addBot' }
+  /** Host only, in the lobby: removes a computer player. */
+  | { type: 'removeBot'; targetId: PlayerId };
 
 /** An action for the reducer: a player action with its sender, or a timer tick. */
 export type Action = (PlayerAction & { id: PlayerId }) | { type: 'tick' };
@@ -203,6 +212,8 @@ export function createGame(hostId: PlayerId, hostName: string): GameState {
 
 /** Returns why a player cannot join, or null when the join is allowed. Known players can always rejoin. */
 export function joinRejection(state: GameState, id: PlayerId): JoinRejection | null {
+  // Nobody can take over a computer seat by sending its ID.
+  if (id.startsWith(BOT_ID_PREFIX)) return 'full';
   if (state.seats.some((s) => s.id === id)) return null;
   if (state.phase !== 'LOBBY') return 'started';
   if (state.seats.length >= RULES.maxPlayers) return 'full';
@@ -277,6 +288,14 @@ function apply(s: GameState, a: Action, now: number, rng: Rng): boolean {
       s.swap.done[a.id] = Boolean(a.done);
       checkSwapEnd(s, now);
       return true;
+    case 'addBot':
+      return isHost && s.phase === 'LOBBY' && addBot(s);
+    case 'removeBot': {
+      if (!isHost || s.phase !== 'LOBBY') return false;
+      const before = s.seats.length;
+      s.seats = s.seats.filter((x) => !(x.bot && x.id === a.targetId));
+      return s.seats.length !== before;
+    }
     case 'next':
       return isHost && next(s, now, rng);
   }
@@ -284,6 +303,7 @@ function apply(s: GameState, a: Action, now: number, rng: Rng): boolean {
 
 function join(s: GameState, id: PlayerId, name: string): boolean {
   const seat = s.seats.find((x) => x.id === id);
+  if (seat?.bot) return false;
   if (seat) {
     seat.connected = true;
     if (s.phase === 'LOBBY') seat.name = cleanName(name);
@@ -291,6 +311,15 @@ function join(s: GameState, id: PlayerId, name: string): boolean {
   }
   if (joinRejection(s, id)) return false;
   s.seats.push({ id, name: cleanName(name), connected: true });
+  return true;
+}
+
+/** Adds a computer player with the smallest free number, for example "電腦 1". */
+function addBot(s: GameState): boolean {
+  if (s.seats.length >= RULES.maxPlayers) return false;
+  let n = 1;
+  while (s.seats.some((x) => x.id === `${BOT_ID_PREFIX}${n}`)) n++;
+  s.seats.push({ id: `${BOT_ID_PREFIX}${n}`, name: `電腦 ${n}`, connected: true, bot: true });
   return true;
 }
 

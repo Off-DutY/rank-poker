@@ -116,6 +116,35 @@ describe('lobby', () => {
   });
 });
 
+describe('computer players', () => {
+  it('lets only the host add and remove them in the lobby', () => {
+    const t = new Table(1);
+    expect(t.act('P1', { type: 'addBot' })).toBe(false);
+    t.act('P0', { type: 'addBot' });
+    t.act('P0', { type: 'addBot' });
+    expect(t.s.seats.map((x) => [x.id, x.name, x.bot])).toEqual([
+      ['P0', 'Host', undefined],
+      ['bot-1', '電腦 1', true],
+      ['bot-2', '電腦 2', true],
+    ]);
+    expect(t.act('P0', { type: 'removeBot', targetId: 'P0' })).toBe(false);
+    t.act('P0', { type: 'removeBot', targetId: 'bot-1' });
+    t.act('P0', { type: 'addBot' });
+    expect(t.ids).toEqual(['P0', 'bot-2', 'bot-1']);
+    t.act('P0', { type: 'start' });
+    expect(t.s.phase).toBe('PICK');
+    expect(t.act('P0', { type: 'addBot' })).toBe(false);
+  });
+
+  it('stops at 13 seats and never lets a person take a computer seat', () => {
+    const t = new Table(12);
+    t.act('P0', { type: 'addBot' });
+    expect(t.act('P0', { type: 'addBot' })).toBe(false);
+    expect(joinRejection(t.s, 'bot-1')).toBe('full');
+    expect(t.act('bot-1', { type: 'join', name: 'x' })).toBe(false);
+  });
+});
+
 describe('deal', () => {
   it('deals 2 unique cards per player and 5 hidden board cards', () => {
     const t = new Table(13);

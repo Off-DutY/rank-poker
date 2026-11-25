@@ -1,7 +1,7 @@
 import type { JoinRejection, PlayerAction, PlayerId, PrivateState, PublicState } from '../core/engine';
 
 /** Protocol version. Players with a different version cannot join (spec 8). */
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
 
 /** Message from a player to the host. */
 export type ClientMsg =

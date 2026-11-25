@@ -91,7 +91,8 @@ export function lobby(ctx: Ctx, url: string): string {
     <section class="panel">
       <h2>玩家 ${n} / 13</h2>
       <ul class="seats">${pub.seats.map((s) => seatItem(ctx, s)).join('')}</ul>
-      ${n < 3 ? '<p class="hint">至少需要 3 位玩家。</p>' : ''}
+      ${n < 3 ? '<p class="hint">至少需要 3 位玩家。人數不夠時，可以加入電腦玩家。</p>' : ''}
+      ${isHost ? `<button data-act="addBot" ${n >= 13 ? 'disabled' : ''}>＋ 加入電腦玩家</button>` : ''}
     </section>
     <section class="panel">
       <h2>房間設定</h2>
@@ -151,8 +152,14 @@ function toggle(key: string, label: string, on: boolean, enabled: boolean): stri
 }
 
 function seatItem(ctx: Ctx, s: Seat): string {
-  const tags = [s.id === ctx.pub.hostId ? '<span class="tag">房主</span>' : '', s.id === ctx.me ? '<span class="tag me">你</span>' : '', s.connected ? '' : '<span class="tag off">離線</span>'];
-  return `<li>${esc(s.name)} ${tags.join('')}</li>`;
+  const tags = [
+    s.id === ctx.pub.hostId ? '<span class="tag">房主</span>' : '',
+    s.id === ctx.me ? '<span class="tag me">你</span>' : '',
+    s.bot ? '<span class="tag bot">電腦</span>' : '',
+    s.connected ? '' : '<span class="tag off">離線</span>',
+  ];
+  const remove = s.bot && ctx.isHost && ctx.pub.phase === 'LOBBY' ? ` <button class="remove-bot" data-act="removeBot" data-target="${esc(s.id)}" aria-label="移除 ${esc(s.name)}">✕</button>` : '';
+  return `<li>${esc(s.name)} ${tags.join('')}${remove}</li>`;
 }
 
 /** Renders the cards: board and own hole cards. */

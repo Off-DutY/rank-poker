@@ -74,6 +74,8 @@ input { width: 100%; background: rgba(0, 0, 0, 0.3); }
 .tag { font-size: 12px; padding: 1px 6px; border-radius: 6px; background: var(--gold); color: #1d1d1d; margin-left: 4px; }
 .tag.me { background: #8ecae6; }
 .tag.off { background: #777; color: #eee; }
+.tag.bot { background: #b8a1e3; }
+.remove-bot { padding: 0 8px; margin-left: 6px; font-size: 12px; line-height: 20px; }
 .modes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .mode { text-align: left; display: grid; gap: 2px; }
 .mode small { color: var(--muted); font-size: 12px; }

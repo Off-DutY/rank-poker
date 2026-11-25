@@ -219,6 +219,12 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
       case 'preview':
         previewNotify();
         break;
+      case 'addBot':
+        session.act({ type: 'addBot' });
+        break;
+      case 'removeBot':
+        session.act({ type: 'removeBot', targetId: d.target! });
+        break;
       case 'start':
       case 'lock':
       case 'unlock':

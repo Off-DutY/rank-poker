@@ -15,7 +15,7 @@ const code = parseRoomCode(location.hash);
 window.addEventListener('hashchange', () => location.reload());
 
 const RULES_TEXT = `<details class="rules"><summary>遊戲規則</summary><ol>
-  <li>3–13 人合作。牌力依德州撲克規則，用 2 張手牌 + 5 張公牌中最好的 5 張比大小。</li>
+  <li>3–13 人合作。人數不夠時，房主可以加入電腦玩家。牌力依德州撲克規則，用 2 張手牌 + 5 張公牌中最好的 5 張比大小。</li>
   <li>不能透露自己的手牌。</li>
   <li>每輪 20 秒內選順位並鎖定：1 是最小，最大等於人數。</li>
   <li>多人選同一個順位時，用執著度決定誰留下，其他人移到最近的空順位。</li>

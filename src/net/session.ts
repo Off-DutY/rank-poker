@@ -1,3 +1,4 @@
+import { botAction, estimateRank } from '../core/bot';
 import type { Rng } from '../core/cards';
 import {
   type GameState,
@@ -14,6 +15,11 @@ import {
 } from '../core/engine';
 import { type ClientMsg, type HostMsg, PROTOCOL_VERSION, parseClientMsg, parseHostMsg } from './protocol';
 import type { Clock, Transport } from './transport';
+
+/** A computer player waits at least this long before each action, like a person who thinks. */
+const BOT_MIN_MS = 1_200;
+/** Random extra wait on top of {@link BOT_MIN_MS}. */
+const BOT_SPREAD_MS = 2_500;
 
 /** Connection status of a session. */
 export type SessionStatus = 'connecting' | 'joined' | 'rejected' | 'closed';
@@ -58,6 +64,10 @@ export class HostSession extends BaseSession implements Session {
   private state: GameState;
   private peerToPlayer = new Map<string, PlayerId>();
   private timer: unknown = null;
+  /** Pending action timer of each computer player. */
+  private botTimers = new Map<PlayerId, unknown>();
+  /** Strength estimate of each computer player, valid for 1 round (`key` = hand and round). */
+  private botEstimates = new Map<PlayerId, { key: string; value: number }>();
 
   constructor(
     readonly me: PlayerId,
@@ -89,6 +99,8 @@ export class HostSession extends BaseSession implements Session {
 
   close(): void {
     this.clock.clearTimeout(this.timer);
+    for (const t of this.botTimers.values()) this.clock.clearTimeout(t);
+    this.botTimers.clear();
     this.status = 'closed';
     this.transport.leave();
     this.emit();
@@ -118,6 +130,45 @@ export class HostSession extends BaseSession implements Session {
     for (const [peerId, playerId] of this.peerToPlayer) this.sendState(peerId, playerId);
     this.view = { pub: publicView(this.state), priv: privateView(this.state, this.me) };
     this.emit();
+    this.driveBots();
+  }
+
+  /** Schedules the next action of every computer player that has something to do and no pending action. */
+  private driveBots(): void {
+    if (this.status === 'closed') return;
+    for (const seat of this.state.seats) {
+      if (!seat.bot || this.botTimers.has(seat.id)) continue;
+      // Without an estimate for this round, assume there is work: the timer computes it, so bots do not all compute at once.
+      if (this.hasEstimate(seat.id) && !this.botDecide(seat.id)) continue;
+      // Actions before the intro pause ends are ignored, so wait for it too.
+      const wait = Math.max(0, (this.state.startsAt ?? 0) - this.clock.now()) + BOT_MIN_MS + this.rng.int(BOT_SPREAD_MS);
+      const handle = this.clock.setTimeout(() => {
+        this.botTimers.delete(seat.id);
+        // Decide again: the state may have changed during the wait.
+        const a = this.botDecide(seat.id);
+        // A rejected action (for example during the intro pause) tries again; no action waits for the next change.
+        if (a && !this.dispatch({ ...a, id: seat.id })) this.driveBots();
+      }, wait);
+      this.botTimers.set(seat.id, handle);
+    }
+  }
+
+  private hasEstimate(id: PlayerId): boolean {
+    return this.botEstimates.get(id)?.key === `${this.state.handNo}-${this.state.round}`;
+  }
+
+  /** Returns what a computer player wants to do now. It sees only the views a human in that seat gets. */
+  private botDecide(id: PlayerId): PlayerAction | null {
+    const pub = publicView(this.state);
+    const priv = privateView(this.state, id);
+    if (!priv.hole) return null;
+    const key = `${pub.handNo}-${pub.round}`;
+    let est = this.botEstimates.get(id);
+    if (est?.key !== key) {
+      est = { key, value: estimateRank(priv.hole, pub.board, pub.seats.length, pub.settings.holeCards, this.rng) };
+      this.botEstimates.set(id, est);
+    }
+    return botAction(pub, id, est.value);
   }
 
   private sendState(peerId: string, playerId: PlayerId): void {

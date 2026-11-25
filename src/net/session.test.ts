@@ -14,6 +14,34 @@ function recording(t: Transport) {
   return { t, received };
 }
 
+describe('computer players', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('play a whole hand with the host alone', async () => {
+    vi.useFakeTimers();
+    const host = new HostSession('H', 'Host', new MemoryHub().connect(), realClock, seededRng(4));
+    host.act({ type: 'settings', settings: { introSeconds: 0, swapSeconds: 30 } });
+    host.act({ type: 'addBot' });
+    host.act({ type: 'addBot' });
+    host.act({ type: 'start' });
+    for (let i = 0; i < 200 && host.view!.pub.phase !== 'SHOWDOWN'; i++) {
+      const pub = host.view!.pub;
+      if (pub.phase === 'PICK' && !pub.picks.H!.locked) {
+        host.act({ type: 'pick', rank: pub.picks.H!.rank ?? 1 });
+        host.act({ type: 'lock' });
+      }
+      if (pub.phase === 'PERSIST') host.act({ type: 'persist', value: 0 });
+      if (pub.phase === 'SWAP') {
+        for (const r of pub.swap!.requests) if (r.status === 'pending' && r.to === 'H') host.act({ type: 'swapRespond', requestId: r.id, accept: true });
+        host.act({ type: 'swapDone', done: true });
+      }
+      await vi.advanceTimersByTimeAsync(1_000);
+    }
+    expect(host.view!.pub.phase).toBe('SHOWDOWN');
+    host.close();
+  });
+});
+
 describe('host and clients over the memory hub', () => {
   let hub: MemoryHub;
   let host: HostSession;
