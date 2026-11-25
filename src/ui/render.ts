@@ -51,9 +51,7 @@ export function header(ctx: Ctx, code: string): string {
       ? '等待玩家'
       : pub.phase === 'SHOWDOWN'
         ? `第 ${pub.handNo} 局・攤牌`
-        : pub.phase === 'MATCH_END'
-          ? '本場結束'
-          : `第 ${pub.handNo} 局・${ROUND_NAMES[pub.round]}・${STAGE_NAMES[pub.phase]}`;
+        : `第 ${pub.handNo} 局・${ROUND_NAMES[pub.round]}・${STAGE_NAMES[pub.phase]}`;
   // In the showdown, the score changes only after the reveal ends, so it does not spoil the result.
   const late = pub.phase === 'SHOWDOWN' ? ` late" style="--done:${revealEnd(pub.seats.length)}s` : '';
   return `<div class="hdr-row"><div class="room">房號 <b>${code}</b></div>
@@ -64,7 +62,7 @@ export function header(ctx: Ctx, code: string): string {
 
 /** Renders the hand progress: the played rounds and the showdown. Empty outside a hand. */
 function stepper(pub: PublicState): string {
-  if (pub.phase === 'LOBBY' || pub.phase === 'MATCH_END') return '';
+  if (pub.phase === 'LOBBY') return '';
   const current = pub.phase === 'SHOWDOWN' ? 5 : pub.round;
   const steps = [...playedRounds(pub.settings), 5].map((n) => {
     const cls = n < current ? 'done' : n === current ? 'now' : '';
@@ -78,8 +76,8 @@ export function lobby(ctx: Ctx, url: string): string {
   const { pub, isHost } = ctx;
   const n = pub.seats.length;
   const modes: [string, string, string][] = [
-    ['budget', '預算制', '每局 100 單位，衝突與挑戰共用；可以挑戰'],
-    ['free', '無代價', '執著度不消耗；不能挑戰'],
+    ['on', '可以挑戰', '交換被拒絕時，可以用執著度挑戰'],
+    ['off', '不能挑戰', '交換被拒絕就結束'],
   ];
   const swapOptions = [0, 30, 60, 90, 120, 180];
   return `
@@ -96,10 +94,10 @@ export function lobby(ctx: Ctx, url: string): string {
     </section>
     <section class="panel">
       <h2>房間設定</h2>
-      <div class="label">執著度模式</div>
+      <div class="label">挑戰（執著度不消耗）</div>
       <div class="modes">${modes
         .map(
-          ([m, label, desc]) => `<button class="mode${pub.settings.persistenceMode === m ? ' on' : ''}" data-act="mode" data-mode="${m}" ${isHost ? '' : 'disabled'}>
+          ([m, label, desc]) => `<button class="mode${(pub.settings.challenge ? 'on' : 'off') === m ? ' on' : ''}" data-act="mode" data-mode="${m}" ${isHost ? '' : 'disabled'}>
             <b>${label}</b><small>${desc}</small></button>`,
         )
         .join('')}</div>
@@ -166,12 +164,8 @@ function seatItem(ctx: Ctx, s: Seat): string {
 export function cards(ctx: Ctx): string {
   const board = Array.from({ length: 5 }, (_, i) => card(ctx.pub.board[i] ?? null)).join('');
   const hole = holeHtml(ctx);
-  const budget =
-    ctx.priv.budget == null
-      ? ''
-      : `<div class="budget" title="剩餘執著度"><div style="width:${Math.round(ctx.priv.budget * 100)}%"></div></div>`;
   return `<div class="board">${board}</div>
-    <div class="mine"><div class="hole">${hole}</div><div class="mine-side"><span class="label">你的手牌</span>${budget}</div></div>`;
+    <div class="mine"><div class="hole">${hole}</div><div class="mine-side"><span class="label">你的手牌</span></div></div>`;
 }
 
 /** Renders the own hole cards, or card backs (one per hole card) when they are hidden. */
@@ -380,10 +374,6 @@ export function persistPrompt(ctx: Ctx): PersistPrompt | null {
 
 /** Renders the persistence window. The slider has no scale and no numbers. */
 export function persistWindow(ctx: Ctx, p: PersistPrompt): string {
-  const budget =
-    ctx.priv.budget == null
-      ? ''
-      : `<div class="label">剩餘執著度</div><div class="budget big"><div style="width:${Math.round(ctx.priv.budget * 100)}%"></div></div>`;
   return `<div class="modal"><div class="dialog">
     <h2>${p.title}</h2>
     ${countdown(p.deadline, 10_000)}
@@ -394,9 +384,8 @@ export function persistWindow(ctx: Ctx, p: PersistPrompt): string {
     <div class="contest"><span class="label">爭奪的順位</span><div class="contest-rank">${p.contested}${rankHint(p.contested, ctx.pub.seats.length)}</div>
       <span class="label">1 最小 · ${ctx.pub.seats.length} 最大</span></div>
     ${p.detail}
-    <p class="hint">你有多執著？往右拉越執著。${ctx.priv.budget == null ? '' : '投入的量會從預算扣除，輸了也一樣。'}</p>
+    <p class="hint">你有多執著？往右拉越執著。執著度不消耗。</p>
     <div class="slider-wrap"><span>放手</span><input type="range" min="0" max="1000" step="1" data-act="slider"><span>死守</span></div>
-    ${budget}
     <button class="primary big" data-act="persist">送出</button>
   </div></div>`;
 }
@@ -421,7 +410,6 @@ export function showdownView(ctx: Ctx): string {
         <td class="hand reveal flip">${e.hole.map(card).join('')}</td><td class="reveal">${e.category}</td><td class="num reveal">${truth}</td><td class="reveal verdict">${ok ? '✓' : '✗'}</td></tr>`;
     })
     .join('');
-  const nextLabel = pub.matchOver ? '查看結果' : '下一局';
   const done = `style="--done:${revealEnd(ids.length)}s"`;
   return `<div class="result-slot" ${done}><div class="result pending">比對中…</div>
       <div class="result final ${sd.success ? 'ok' : 'bad'}">${sd.success ? '成功！排序完全正確' : '失敗，排序有錯'}</div></div>
@@ -429,7 +417,7 @@ export function showdownView(ctx: Ctx): string {
     <table class="showdown"><thead><tr><th>順位</th><th>玩家</th><th>手牌</th><th>牌型</th><th>正解</th><th></th></tr></thead><tbody>${rows}</tbody></table>
     <div class="after-reveal" ${done}>
     ${historyTable(ctx)}
-    ${isHost ? `<button class="primary big" data-act="next">${nextLabel}</button>` : '<p class="hint center">等待房主繼續…</p>'}</div>`;
+    ${isHost ? '<div class="end-actions"><button class="primary big" data-act="next">下一局</button><button class="big" data-act="lobby">全員回到大廳</button></div>' : '<p class="hint center">等待房主決定：下一局或回到大廳…</p>'}</div>`;
 }
 
 /**
@@ -462,15 +450,6 @@ export function historyTable(ctx: Ctx): string {
     .join('');
   return `<section class="history"><div class="label">各輪順位（每輪交換結束後）</div>
     <table><thead><tr><th>玩家</th>${head}</tr></thead><tbody>${rows}</tbody></table></section>`;
-}
-
-/** Renders the end of the match. */
-export function matchEnd(ctx: Ctx): string {
-  const { pub, isHost } = ctx;
-  const won = pub.score.wins > pub.score.losses;
-  return `<div class="result ${won ? 'ok' : 'bad'} huge">${won ? '全隊勝利' : '全隊落敗'}</div>
-    <p class="center">勝 ${pub.score.wins} / 敗 ${pub.score.losses}</p>
-    ${isHost ? '<button class="primary big" data-act="next">再玩一場</button>' : '<p class="hint center">等待房主開新的一場…</p>'}`;
 }
 
 /** One player's rank before and after a step. `from` is null when there is nothing to compare. */

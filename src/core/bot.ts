@@ -43,10 +43,12 @@ function closeness(rank: number, estimate: number): number {
   return Math.max(0, 1 - Math.abs(rank - estimate) / 2);
 }
 
-/** Slider value for a persistence bid. In budget mode the bot keeps most of its budget for later rounds. */
-function bid(pub: PublicState, rank: number, estimate: number): number {
-  const c = closeness(rank, estimate);
-  return pub.settings.persistenceMode === 'free' ? c : 0.1 + 0.4 * c;
+/**
+ * How much a bot wants to sort high in a conflict group (spec 6.2): a stronger bid gets a larger rank.
+ * 0.5 when the estimate equals the contested rank, 1 when it is 1 or more above, 0 when it is 1 or more below.
+ */
+function upward(rank: number, estimate: number): number {
+  return Math.min(1, Math.max(0, (estimate - rank + 1) / 2));
 }
 
 /**
@@ -67,13 +69,13 @@ export function botAction(pub: PublicState, me: PlayerId, estimate: number): Pla
   if (pub.phase === 'PERSIST') {
     const c = pub.conflict;
     if (!c || !c.participants.includes(me) || c.submitted.includes(me)) return null;
-    return { type: 'persist', value: bid(pub, pub.picks[me]?.rank ?? 0, estimate) };
+    return { type: 'persist', value: (upward(pub.picks[me]?.rank ?? 0, estimate)) };
   }
   if (pub.phase === 'SWAP' && pub.swap) {
     const myRank = pub.ranks[me]!;
     const reqs = pub.swap.requests;
     const challenge = reqs.find((r) => r.status === 'challenge' && (r.from === me || r.to === me) && !r.submitted.includes(me));
-    if (challenge) return { type: 'persist', value: bid(pub, challenge.to === me ? myRank : pub.ranks[challenge.to]!, estimate) };
+    if (challenge) return { type: 'persist', value: (closeness(challenge.to === me ? myRank : pub.ranks[challenge.to]!, estimate)) };
     const asked = reqs.find((r) => r.status === 'pending' && r.to === me);
     if (asked) {
       // Accept when the other rank is nearer to the estimate than the current one.

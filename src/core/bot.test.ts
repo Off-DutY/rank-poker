@@ -57,4 +57,23 @@ describe('botAction', () => {
     expect(botAction(pub, 'bot-1', 3.8)).toEqual({ type: 'swapRespond', requestId: 1, accept: true });
     expect(botAction(pub, 'bot-1', 1.5)).toEqual({ type: 'swapRespond', requestId: 1, accept: false });
   });
+
+  it('in a conflict, bids more when its estimate is above the contested rank', () => {
+    const picks: [string, PlayerAction][] = (
+      [
+        ['A', 1],
+        ['bot-1', 2],
+        ['B', 2],
+        ['C', 4],
+      ] as const
+    ).flatMap(([id, rank]) => [
+      [id, { type: 'pick', rank }],
+      [id, { type: 'lock' }],
+    ]);
+    const pub = game(picks);
+    expect(pub.phase).toBe('PERSIST');
+    const value = (estimate: number) => (botAction(pub, 'bot-1', estimate) as { value: number }).value;
+    expect(value(3)).toBeGreaterThan(value(2));
+    expect(value(2)).toBeGreaterThan(value(1));
+  });
 });

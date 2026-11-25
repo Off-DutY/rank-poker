@@ -105,8 +105,8 @@ describe('lobby', () => {
   it('clamps settings and only accepts them from the host', () => {
     const t = new Table(3);
     expect(t.act('P1', { type: 'settings', settings: { swapSeconds: 5 } })).toBe(false);
-    t.act('P0', { type: 'settings', settings: { swapSeconds: 999, persistenceMode: 'free' } });
-    expect(t.s.settings).toMatchObject({ swapSeconds: 180, persistenceMode: 'free' });
+    t.act('P0', { type: 'settings', settings: { swapSeconds: 999, challenge: false } });
+    expect(t.s.settings).toMatchObject({ swapSeconds: 180, challenge: false });
     t.act('P0', { type: 'settings', settings: { introSeconds: 99, notifyStyle: 'nope' as never, sound: true } });
     expect(t.s.settings).toMatchObject({ introSeconds: 5, notifyStyle: 'banner', sound: true });
     t.act('P0', { type: 'settings', settings: { holeCards: 4, skipRound: 4 } });
@@ -228,16 +228,16 @@ describe('pick phase', () => {
     expect(t.s.ranks).toEqual({ P0: 1, P1: 2, P2: 3, P3: 4 });
   });
 
-  it('on timeout, locks current picks and gives free ranks to the rest', () => {
+  it('on timeout, locks current picks and gives random picks to the rest', () => {
     t.act('P0', { type: 'pick', rank: 4 });
     t.act('P1', { type: 'pick', rank: 1 });
     t.advance(RULES.pickMs);
     expect(t.s.phase).toBe('PICK');
     t.advance(RULES.graceMs);
     expect(t.s.phase).toBe('SWAP');
-    expect(t.s.ranks.P0).toBe(4);
-    expect(t.s.ranks.P1).toBe(1);
-    expect([t.s.ranks.P2, t.s.ranks.P3].sort()).toEqual([2, 3]);
+    expect(t.s.picks.P0).toEqual({ rank: 4, locked: true });
+    expect(t.s.ranks.P1).toBeLessThan(t.s.ranks.P0!);
+    expect(Object.values(t.s.ranks).sort()).toEqual([1, 2, 3, 4]);
   });
 
   it('accepts actions inside the grace period', () => {
@@ -254,7 +254,7 @@ describe('pick phase', () => {
   });
 });
 
-describe('conflict (budget mode)', () => {
+describe('conflict', () => {
   let t: Table;
   beforeEach(() => {
     t = new Table(4);
@@ -268,48 +268,43 @@ describe('conflict (budget mode)', () => {
     expect(t.act('P3', { type: 'persist', value: 1 })).toBe(false);
   });
 
-  it('resolves by bid strength and charges every bidder', () => {
+  it('resolves by bid strength', () => {
     t.act('P0', { type: 'persist', value: 0.1 });
     t.act('P1', { type: 'persist', value: 0.5 });
     expect(t.act('P1', { type: 'persist', value: 1 })).toBe(false);
     t.act('P2', { type: 'persist', value: 0.3 });
     expect(t.s.phase).toBe('SWAP');
-    // P1 wins rank 2. P2 (30) takes the nearest free rank: 1 and 3 tie, so 1. P0 takes 3.
-    expect(t.s.ranks).toEqual({ P1: 2, P2: 1, P0: 3, P3: 4 });
-    expect(t.s.budgets).toMatchObject({ P0: 90, P1: 50, P2: 70, P3: 100 });
+    // Rank 2 group sorts from the weakest bid: P0 (0.1), P2 (0.3), P1 (0.5).
+    expect(t.s.ranks).toEqual({ P0: 1, P2: 2, P1: 3, P3: 4 });
   });
 
   it('treats a missing bid as 0 at the deadline', () => {
     t.act('P2', { type: 'persist', value: 0 });
     t.advance(RULES.persistMs + RULES.graceMs);
     expect(t.s.phase).toBe('SWAP');
-    // P2 bid 0 before the deadline, so P2 beats the 0-bids at the deadline.
-    expect(t.s.ranks.P2).toBe(2);
+    // P2 bid 0 before the deadline, so P2 beats the 0-bids at the deadline and gets the largest rank of the group.
+    expect(t.s.ranks.P2).toBe(3);
   });
 
   it('clamps bad slider values', () => {
     t.act('P0', { type: 'persist', value: 5 });
     t.act('P1', { type: 'persist', value: Number.NaN });
-    expect(t.s.budgets.P0).toBe(0);
-    expect(t.s.budgets.P1).toBe(100);
+    expect(t.s.conflict!.bids.P0!.amount).toBe(1);
+    expect(t.s.conflict!.bids.P1!.amount).toBe(0);
   });
 
-  it('spends from the remaining budget, so later bids get smaller', () => {
-    t.act('P0', { type: 'persist', value: 0.5 });
-    expect(t.s.budgets.P0).toBe(50);
-    expect(privateView(t.s, 'P0').budget).toBe(0.5);
-  });
-});
-
-describe('conflict (free mode)', () => {
-  it('does not charge anything', () => {
-    const t = new Table(3, { persistenceMode: 'free' });
-    t.act('P0', { type: 'start' });
-    t.pickAll({ P0: 1, P1: 1, P2: 3 });
-    t.act('P0', { type: 'persist', value: 1 });
-    t.act('P1', { type: 'persist', value: 0.2 });
-    expect(t.s.ranks).toEqual({ P0: 1, P1: 2, P2: 3 });
-    expect(privateView(t.s, 'P0').budget).toBeNull();
+  it('does not use up persistence: a full bid is possible again in the next conflict', () => {
+    const z = new Table(3, { swapSeconds: 0 });
+    z.act('P0', { type: 'start' });
+    z.pickAll({ P0: 1, P1: 1, P2: 3 });
+    z.act('P0', { type: 'persist', value: 1 });
+    z.act('P1', { type: 'persist', value: 0.2 });
+    expect(z.s.ranks).toEqual({ P1: 1, P0: 2, P2: 3 });
+    z.pickAll({ P0: 3, P1: 3, P2: 1 });
+    z.act('P0', { type: 'persist', value: 1 });
+    z.act('P1', { type: 'persist', value: 0.9 });
+    expect(z.s.ranks).toEqual({ P2: 1, P1: 2, P0: 3 });
+    expect(Object.keys(privateView(z.s, 'P0'))).toEqual(['hole']);
   });
 });
 
@@ -350,7 +345,6 @@ describe('swap phase', () => {
     t.act('P3', { type: 'persist', value: 0.4 });
     expect(req().status).toBe('won');
     expect(t.s.ranks).toMatchObject({ P0: 4, P3: 1 });
-    expect(t.s.budgets).toMatchObject({ P0: 40, P3: 60 });
   });
 
   it('keeps ranks when the defender bids the same and earlier', () => {
@@ -372,8 +366,8 @@ describe('swap phase', () => {
     expect(req().status).toBe('declined');
   });
 
-  it('has no challenge in free mode', () => {
-    const f = new Table(3, { persistenceMode: 'free' });
+  it('has no challenge when the host turns it off', () => {
+    const f = new Table(3, { challenge: false });
     f.act('P0', { type: 'start' });
     f.pickAll({ P0: 1, P1: 2, P2: 3 });
     f.act('P0', { type: 'swapRequest', targetId: 'P1' });
@@ -431,11 +425,11 @@ describe('swap phase', () => {
 });
 
 describe('showdown and match', () => {
-  it('plays 4 rounds, scores the hand and ends the match at 3 wins or losses', () => {
+  it('plays 4 rounds per hand and counts wins and losses without an end', () => {
     const t = new Table(3);
     t.act('P0', { type: 'start' });
     let hands = 0;
-    while (t.s.phase !== 'MATCH_END' && hands < 10) {
+    while (hands < 6) {
       for (let r = 1; r <= 4; r++) {
         expect(t.s.round).toBe(r);
         expect(t.s.board).toHaveLength([0, 3, 4, 5][r - 1]!);
@@ -447,12 +441,25 @@ describe('showdown and match', () => {
       t.act('P0', { type: 'next' });
       hands++;
     }
-    expect(t.s.phase).toBe('MATCH_END');
-    expect(Math.max(t.s.score.wins, t.s.score.losses)).toBe(3);
+    expect(t.s.phase).toBe('PICK');
+    expect(t.s.handNo).toBe(7);
     expect(hands).toBe(t.s.score.wins + t.s.score.losses);
-    t.act('P0', { type: 'next' });
+  });
+
+  it('lets only the host send everyone back to the lobby after a hand', () => {
+    const t = new Table(3);
+    t.act('P0', { type: 'start' });
+    expect(t.act('P0', { type: 'lobby' })).toBe(false);
+    for (let r = 0; r < 4; r++) t.playQuietRound();
+    expect(t.s.phase).toBe('SHOWDOWN');
+    const score = { ...t.s.score };
+    expect(t.act('P1', { type: 'lobby' })).toBe(false);
+    expect(t.act('P0', { type: 'lobby' })).toBe(true);
     expect(t.s.phase).toBe('LOBBY');
+    expect(t.s.score).toEqual(score);
     expect(t.ids).toEqual(['P0', 'P1', 'P2']);
+    t.act('P0', { type: 'start' });
+    expect(t.s.score).toEqual({ wins: 0, losses: 0 });
   });
 
   const playToLastRound = () => {

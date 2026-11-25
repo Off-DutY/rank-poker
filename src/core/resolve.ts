@@ -5,7 +5,7 @@ export type PlayerId = string;
 
 /** A persistence bid. A higher amount wins; on equal amounts the earlier submission wins. */
 export interface Bid {
-  /** Persistence amount. Budget units in budget mode, 0..1 in free mode. */
+  /** Persistence amount, 0..1. */
   amount: number;
   /** Submission time in milliseconds (host clock). */
   at: number;
@@ -33,11 +33,11 @@ export function findConflicts(order: readonly PlayerId[], picks: Readonly<Record
 }
 
 /**
- * Converts picks to a full permutation of ranks 1..n (spec 6.2).
- * 1. A rank with 1 player goes to that player.
- * 2. A conflicted rank goes to its strongest bid.
- * 3. Losers, strongest bid first, take the nearest free rank; on equal distance, the smaller rank.
- * 4. Players without a pick take random free ranks.
+ * Converts picks to a full permutation of ranks 1..n (spec 6.2). There is no fill to the nearest free rank.
+ * 1. A player without a valid pick gets a random pick 1..n and no bid.
+ * 2. Sort all players by pick, smallest first.
+ * 3. Inside 1 pick, the weaker bid comes first, so the strongest bid gets the largest rank of the group.
+ * 4. The position in the sorted list is the rank.
  * @param order Seat order. Also the final tie-break for bids.
  * @param picks Locked rank per player, or null when the player did not pick.
  * @param bids Bids of the conflicted players. A missing bid counts as amount 0 at time +Infinity.
@@ -51,49 +51,15 @@ export function assignRanks(
   const n = order.length;
   const seat = new Map(order.map((id, i) => [id, i]));
   const bidOf = (id: PlayerId): Bid => bids[id] ?? { amount: 0, at: Number.POSITIVE_INFINITY };
-  const byStrength = (a: PlayerId, b: PlayerId) => compareBids(bidOf(a), bidOf(b), seat.get(a)!, seat.get(b)!);
-
-  const result: Record<PlayerId, number> = {};
-  const taken = new Set<number>();
-  const byRank = new Map<number, PlayerId[]>();
-  const unpicked: PlayerId[] = [];
-
+  const want = new Map<PlayerId, number>();
   for (const id of order) {
     const r = picks[id];
-    if (r == null || r < 1 || r > n || !Number.isInteger(r)) unpicked.push(id);
-    else byRank.set(r, [...(byRank.get(r) ?? []), id]);
+    want.set(id, r != null && Number.isInteger(r) && r >= 1 && r <= n ? r : 1 + rng.int(n));
   }
-
-  const losers: PlayerId[] = [];
-  for (const [r, ids] of byRank) {
-    const [winner, ...rest] = ids.sort(byStrength);
-    result[winner!] = r;
-    taken.add(r);
-    losers.push(...rest);
-  }
-
-  losers.sort(byStrength);
-  for (const id of losers) {
-    const want = picks[id]!;
-    for (let d = 1; d < n; d++) {
-      const lower = want - d;
-      const upper = want + d;
-      const r = lower >= 1 && !taken.has(lower) ? lower : upper <= n && !taken.has(upper) ? upper : 0;
-      if (r) {
-        result[id] = r;
-        taken.add(r);
-        break;
-      }
-    }
-  }
-
-  const free: number[] = [];
-  for (let r = 1; r <= n; r++) if (!taken.has(r)) free.push(r);
-  for (const id of unpicked) {
-    const i = rng.int(free.length);
-    result[id] = free.splice(i, 1)[0]!;
-  }
-  return result;
+  const sorted = order
+    .slice()
+    .sort((a, b) => want.get(a)! - want.get(b)! || compareBids(bidOf(b), bidOf(a), seat.get(b)!, seat.get(a)!));
+  return Object.fromEntries(sorted.map((id, i) => [id, i + 1]));
 }
 
 /**

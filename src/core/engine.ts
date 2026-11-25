@@ -14,9 +14,6 @@ export const RULES = {
   challengeDecideMs: 5_000,
   /** Actions that arrive up to this long after a deadline still count (spec 9). */
   graceMs: 300,
-  budgetPerHand: 100,
-  winTarget: 3,
-  loseTarget: 3,
   maxSwapSeconds: 180,
   maxIntroSeconds: 5,
   /** Extra intro time when cards are dealt or revealed (every round), for the big reveal effect. Only when the intro is on. */
@@ -24,15 +21,13 @@ export const RULES = {
   maxNameLength: 12,
 } as const;
 
-/** How persistence is paid for. */
-export type PersistenceMode = 'budget' | 'free';
-
 /** How players see announcements. */
 export type NotifyStyle = 'fullscreen' | 'banner' | 'toast' | 'ticker';
 
 /** Room settings that the host can change in the lobby. */
 export interface Settings {
-  persistenceMode: PersistenceMode;
+  /** True when a requester may challenge a declined swap request with persistence. */
+  challenge: boolean;
   /** Length of the swap phase in seconds. 0 skips the swap phase. */
   swapSeconds: number;
   /** Pause before each timed phase starts, for the announcement. 0 starts the timer at once. */
@@ -59,7 +54,7 @@ export function boardSize(round: number): number {
 const NOTIFY_STYLES: readonly NotifyStyle[] = ['fullscreen', 'banner', 'toast', 'ticker'];
 
 /** Game phase. Deal, resolve and reveal are instant and have no phase of their own. */
-export type Phase = 'LOBBY' | 'PICK' | 'PERSIST' | 'SWAP' | 'SHOWDOWN' | 'MATCH_END';
+export type Phase = 'LOBBY' | 'PICK' | 'PERSIST' | 'SWAP' | 'SHOWDOWN';
 
 /** A player seat. */
 export interface Seat {
@@ -127,7 +122,6 @@ export interface GameState {
   hole: Record<PlayerId, Card[]>;
   fullBoard: Card[];
   board: Card[];
-  budgets: Record<PlayerId, number>;
   picks: Record<PlayerId, Pick>;
   ranks: Record<PlayerId, number>;
   /** Final rank of each player at the end of each finished round in this hand. Index 0 is round 1. */
@@ -152,7 +146,10 @@ export type PlayerAction =
   | { type: 'swapRespond'; requestId: number; accept: boolean }
   | { type: 'swapChallenge'; requestId: number }
   | { type: 'swapDone'; done: boolean }
+  /** Host only, in the showdown: deals the next hand. */
   | { type: 'next' }
+  /** Host only, in the showdown: sends all players back to the lobby. */
+  | { type: 'lobby' }
   /** Host only, in the lobby: adds a computer player. */
   | { type: 'addBot' }
   /** Host only, in the lobby: removes a computer player. */
@@ -189,7 +186,7 @@ export function cleanName(raw: unknown): string {
 export function createGame(hostId: PlayerId, hostName: string): GameState {
   return {
     phase: 'LOBBY',
-    settings: { persistenceMode: 'budget', swapSeconds: 60, introSeconds: 3, notifyStyle: 'banner', sound: false, vibrate: false, holeCards: 2, skipRound: 0 },
+    settings: { challenge: true, swapSeconds: 60, introSeconds: 3, notifyStyle: 'banner', sound: false, vibrate: false, holeCards: 2, skipRound: 0 },
     hostId,
     seats: [{ id: hostId, name: cleanName(hostName), connected: true }],
     handNo: 0,
@@ -200,7 +197,6 @@ export function createGame(hostId: PlayerId, hostName: string): GameState {
     hole: {},
     fullBoard: [],
     board: [],
-    budgets: {},
     picks: {},
     ranks: {},
     history: {},
@@ -218,11 +214,6 @@ export function joinRejection(state: GameState, id: PlayerId): JoinRejection | n
   if (state.phase !== 'LOBBY') return 'started';
   if (state.seats.length >= RULES.maxPlayers) return 'full';
   return null;
-}
-
-/** Returns true when the match has reached the win or loss target. */
-export function isMatchOver(state: GameState): boolean {
-  return state.score.wins >= RULES.winTarget || state.score.losses >= RULES.loseTarget;
 }
 
 /**
@@ -297,7 +288,11 @@ function apply(s: GameState, a: Action, now: number, rng: Rng): boolean {
       return s.seats.length !== before;
     }
     case 'next':
-      return isHost && next(s, now, rng);
+      if (!isHost || s.phase !== 'SHOWDOWN') return false;
+      deal(s, now, rng);
+      return true;
+    case 'lobby':
+      return isHost && backToLobby(s);
   }
 }
 
@@ -324,9 +319,7 @@ function addBot(s: GameState): boolean {
 }
 
 function updateSettings(s: GameState, patch: Partial<Settings>): boolean {
-  if (patch.persistenceMode === 'budget' || patch.persistenceMode === 'free') {
-    s.settings.persistenceMode = patch.persistenceMode;
-  }
+  if (typeof patch.challenge === 'boolean') s.settings.challenge = patch.challenge;
   if (typeof patch.swapSeconds === 'number' && Number.isFinite(patch.swapSeconds)) {
     s.settings.swapSeconds = Math.min(RULES.maxSwapSeconds, Math.max(0, Math.round(patch.swapSeconds)));
   }
@@ -355,7 +348,6 @@ function deal(s: GameState, now: number, rng: Rng): void {
   // 13 players x 3 hole cards + 5 board cards = 44, so the deck is always large enough.
   for (const seat of s.seats) s.hole[seat.id] = deck.splice(-s.settings.holeCards);
   s.fullBoard = deck.splice(-5);
-  s.budgets = Object.fromEntries(s.seats.map((x) => [x.id, RULES.budgetPerHand]));
   s.ranks = {};
   s.history = {};
   s.showdown = null;
@@ -414,27 +406,24 @@ function pickedRanks(s: GameState): Record<PlayerId, number | null> {
   return Object.fromEntries(Object.entries(s.picks).map(([id, p]) => [id, p.rank]));
 }
 
-/** Records a bid and charges the budget. `value` is the slider position 0..1. */
-function placeBid(s: GameState, id: PlayerId, value: number, now: number): Bid {
+/** Records a bid. `value` is the slider position 0..1. A bid costs nothing. */
+function placeBid(value: number, now: number): Bid {
   const v = Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0;
-  if (s.settings.persistenceMode === 'free') return { amount: v, at: now };
-  const amount = v * (s.budgets[id] ?? 0);
-  s.budgets[id] = (s.budgets[id] ?? 0) - amount;
-  return { amount, at: now };
+  return { amount: v, at: now };
 }
 
 function persist(s: GameState, id: PlayerId, value: number, now: number, rng: Rng): boolean {
   if (s.phase === 'PERSIST') {
     const c = s.conflict!;
     if (!c.participants.includes(id) || c.bids[id]) return false;
-    c.bids[id] = placeBid(s, id, value, now);
+    c.bids[id] = placeBid(value, now);
     if (c.participants.every((p) => c.bids[p])) finishPersist(s, now, rng);
     return true;
   }
   if (s.phase === 'SWAP') {
     const r = s.swap!.requests.find((x) => x.status === 'challenge' && (x.from === id || x.to === id));
     if (!r || r.bids[id]) return false;
-    r.bids[id] = placeBid(s, id, value, now);
+    r.bids[id] = placeBid(value, now);
     if (r.bids[r.from] && r.bids[r.to]) {
       finishChallenge(s, r, now);
       checkSwapEnd(s, now);
@@ -496,9 +485,9 @@ function swapRespond(s: GameState, id: PlayerId, requestId: number, accept: bool
   return true;
 }
 
-/** Moves a pending request to deciding (budget mode) or declined (free mode). */
+/** Moves a pending request to deciding (challenge on) or declined (challenge off). */
 function decline(s: GameState, r: SwapRequest, now: number): void {
-  if (s.settings.persistenceMode === 'budget') {
+  if (s.settings.challenge) {
     r.status = 'deciding';
     r.deadline = now + RULES.challengeDecideMs;
   } else {
@@ -580,20 +569,15 @@ function showdown(s: GameState): void {
   s.startsAt = null;
 }
 
-function next(s: GameState, now: number, rng: Rng): boolean {
-  if (s.phase === 'SHOWDOWN') {
-    if (isMatchOver(s)) s.phase = 'MATCH_END';
-    else deal(s, now, rng);
-    return true;
-  }
-  if (s.phase === 'MATCH_END') {
-    const fresh = createGame(s.hostId, '');
-    fresh.settings = s.settings;
-    fresh.seats = s.seats.filter((x) => x.connected);
-    Object.assign(s, fresh);
-    return true;
-  }
-  return false;
+/** Moves all connected players back to the lobby. Settings stay; the score resets when the host starts again. */
+function backToLobby(s: GameState): boolean {
+  if (s.phase !== 'SHOWDOWN') return false;
+  const fresh = createGame(s.hostId, '');
+  fresh.settings = s.settings;
+  fresh.seats = s.seats.filter((x) => x.connected);
+  fresh.score = s.score;
+  Object.assign(s, fresh);
+  return true;
 }
 
 function tick(s: GameState, now: number, rng: Rng): boolean {
@@ -648,14 +632,11 @@ export interface PublicState {
   conflict: { participants: PlayerId[]; submitted: PlayerId[] } | null;
   swap: { requests: PublicSwapRequest[]; done: Record<PlayerId, boolean> } | null;
   showdown: Showdown | null;
-  matchOver: boolean;
 }
 
 /** State that only 1 player can see. */
 export interface PrivateState {
   hole: Card[] | null;
-  /** Remaining budget as a ratio 0..1, or null in free mode. The UI shows it as a bar only. */
-  budget: number | null;
 }
 
 /** Returns the state that every player can see. */
@@ -687,14 +668,11 @@ export function publicView(s: GameState): PublicState {
       })),
     },
     showdown: s.showdown && structuredClone(s.showdown),
-    matchOver: isMatchOver(s),
   };
 }
 
 /** Returns the state that only the given player can see. */
 export function privateView(s: GameState, id: PlayerId): PrivateState {
   const hole = s.phase === 'LOBBY' ? null : (s.hole[id] ?? null);
-  const budget =
-    s.settings.persistenceMode === 'budget' && s.budgets[id] != null ? s.budgets[id]! / RULES.budgetPerHand : null;
-  return { hole: hole && hole.slice(), budget };
+  return { hole: hole && hole.slice() };
 }

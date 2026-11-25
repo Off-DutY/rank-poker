@@ -28,7 +28,7 @@ describe('assignRanks', () => {
       { A: { amount: 80, at: 1 }, B: { amount: 10, at: 1 }, C: { amount: 40, at: 1 } },
       rng,
     );
-    expect(r).toEqual({ E: 1, C: 2, A: 3, B: 4, D: 5 });
+    expect(r).toEqual({ E: 1, B: 2, C: 3, A: 4, D: 5 });
   });
 
   it('breaks equal amounts by earlier submission', () => {
@@ -42,13 +42,18 @@ describe('assignRanks', () => {
     expect(r).toEqual({ A: 3, B: 2, C: 1 });
   });
 
-  it('picks the smaller rank on equal distance', () => {
+  it('orders a group from the weakest bid to the strongest bid', () => {
     const r = assignRanks(['A', 'B', 'C'], { A: 2, B: 2, C: 2 }, { A: { amount: 3, at: 0 }, B: { amount: 2, at: 0 }, C: { amount: 1, at: 0 } }, rng);
-    expect(r).toEqual({ A: 2, B: 1, C: 3 });
+    expect(r).toEqual({ C: 1, B: 2, A: 3 });
   });
 
-  it('serves stronger losers first across groups', () => {
-    // Free rank 4 is 1 step from both conflicts. The strongest loser (D) takes it.
+  it('does not keep the contested rank for the winner', () => {
+    // A wins rank 1, but B sorts before A, so A gets 2. There is no fill to the nearest free rank.
+    const r = assignRanks(['A', 'B', 'C', 'D'], { A: 1, B: 1, C: 4, D: 3 }, { A: { amount: 9, at: 0 }, B: { amount: 1, at: 0 } }, rng);
+    expect(r).toEqual({ B: 1, A: 2, D: 3, C: 4 });
+  });
+
+  it('sorts by pick, then by bid inside each pick', () => {
     const r = assignRanks(
       ['A', 'B', 'C', 'D', 'E'],
       { A: 3, B: 3, C: 5, D: 5, E: 1 },
@@ -66,13 +71,15 @@ describe('assignRanks', () => {
     expect(r).toEqual({ A: 6, B: 5, C: 4, D: 3, E: 2, F: 1 });
   });
 
-  it('gives random free ranks to players without a pick', () => {
-    for (let seed = 0; seed < 20; seed++) {
+  it('gives a random pick to players without a pick', () => {
+    const seen = new Set<number>();
+    for (let seed = 0; seed < 40; seed++) {
       const r = assignRanks(['A', 'B', 'C', 'D'], { A: 2, B: null, C: 2, D: null }, {}, seededRng(seed));
-      expect(r.A).toBe(2);
-      expect(r.C).toBe(1);
+      expect(r.A).toBeGreaterThan(r.C!);
       expect(isPermutation(r, 4)).toBe(true);
+      seen.add(r.B!);
     }
+    expect(seen.size).toBeGreaterThan(1);
   });
 
   it('treats out-of-range picks as no pick', () => {

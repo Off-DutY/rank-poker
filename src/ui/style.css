@@ -43,6 +43,8 @@ button, .button { cursor: pointer; text-decoration: none; display: inline-block;
 button:disabled { opacity: 0.4; cursor: default; }
 button.primary, .button.primary { background: var(--gold); color: #1d1d1d; border-color: transparent; font-weight: 700; }
 button.big { display: block; width: 100%; padding: 14px; margin-top: 12px; font-size: 17px; }
+.end-actions { display: flex; gap: 8px; }
+.end-actions button.big { flex: 1; }
 input { width: 100%; background: rgba(0, 0, 0, 0.3); }
 
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; margin-bottom: 12px; }
@@ -96,9 +98,6 @@ select { width: 100%; background: rgba(0, 0, 0, 0.3); }
 .hole { display: flex; gap: 6px; }
 .hole .card { width: 52px; height: 72px; font-size: 22px; }
 .mine-side { flex: 1; }
-.budget { height: 8px; border-radius: 4px; background: rgba(255, 255, 255, 0.12); overflow: hidden; margin-top: 6px; }
-.budget.big { height: 12px; }
-.budget div { height: 100%; background: linear-gradient(90deg, var(--red), var(--gold)); transition: width 0.4s; }
 
 /* Countdown */
 .countdown { position: relative; height: 22px; border-radius: 11px; background: rgba(0, 0, 0, 0.35); overflow: hidden; margin: 6px 0 10px; }

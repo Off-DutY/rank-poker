@@ -106,7 +106,6 @@ export function diffEvents(prev: PublicState | null, next: PublicState, me: Play
   if (next.phase === 'SHOWDOWN' && prev.phase !== 'SHOWDOWN') {
     out.push({ kind: 'result', title: '攤牌！', lines: ['公開所有手牌，從順位 1 開始比對'] });
   }
-  if (next.phase === 'MATCH_END' && prev.phase !== 'MATCH_END') out.push({ kind: 'result', title: '本場結束', lines: [] });
   if (next.phase === 'LOBBY' && prev.phase !== 'LOBBY') out.push({ kind: 'info', title: '回到大廳', lines: ['房主可以開始新的一場'] });
   return out;
 }

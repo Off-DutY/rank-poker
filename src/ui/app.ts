@@ -4,7 +4,7 @@ import type { Session } from '../net/session';
 import { boardBurst, captureChips, createAnnouncer, dealCards, flashChips, playChipMoves, pop } from './effects';
 import { type Announcement, diffEvents } from './events';
 import { unlockAudio } from './sound';
-import { type Ctx, cards, handRankPanel, header, historyTable, lobby, rankChangeHtml, matchEnd, persistPrompt, persistWindow, pickLadder, showdownView, swapView } from './render';
+import { type Ctx, cards, handRankPanel, header, historyTable, lobby, rankChangeHtml, persistPrompt, persistWindow, pickLadder, showdownView, swapView } from './render';
 import { roomUrl } from './room';
 
 const REJECT_TEXT: Record<string, string> = {
@@ -109,9 +109,7 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
         ? lobby(ctx, url)
         : v.pub.phase === 'SHOWDOWN'
           ? showdownView(ctx)
-          : v.pub.phase === 'MATCH_END'
-            ? matchEnd(ctx)
-            : cards(ctx) + changes + (v.pub.phase === 'SWAP' ? swapView(ctx, now) : pickLadder(ctx)) + historyTable(ctx);
+          : cards(ctx) + changes + (v.pub.phase === 'SWAP' ? swapView(ctx, now) : pickLadder(ctx)) + historyTable(ctx);
     const before = captureChips(main);
     if (set(main, body)) playEffects(shown, before);
     main.classList.toggle('intro', inIntro);
@@ -211,7 +209,7 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
         );
         break;
       case 'mode':
-        session.act({ type: 'settings', settings: { persistenceMode: d.mode === 'free' ? 'free' : 'budget' } });
+        session.act({ type: 'settings', settings: { challenge: d.mode === 'on' } });
         break;
       case 'toggle':
         if (d.key === 'sound' || d.key === 'vibrate') session.act({ type: 'settings', settings: { [d.key]: d.on !== '1' } });
@@ -229,6 +227,7 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
       case 'lock':
       case 'unlock':
       case 'next':
+      case 'lobby':
         session.act({ type: d.act });
         break;
       case 'pick':
