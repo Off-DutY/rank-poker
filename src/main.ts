@@ -18,8 +18,8 @@ const RULES_TEXT = `<details class="rules"><summary>遊戲規則</summary><ol>
   <li>3–13 人合作。人數不夠時，房主可以加入電腦玩家。牌力依德州撲克規則，用 2 張手牌 + 5 張公牌中最好的 5 張比大小。</li>
   <li>不能透露自己的手牌。</li>
   <li>每輪 20 秒內選順位並鎖定：1 是最小，最大等於人數。</li>
-  <li>多人選同一個順位時，全員依選的順位排序；同一順位內，執著度越高，排到越大的順位。</li>
-  <li>之後是交換階段：可以向別人提出互換順位，被拒絕時可以挑戰（房主可關閉）。執著度不消耗。</li>
+  <li>多人選同一個順位時，全員依選的順位排序；同一順位內，籌碼越多，排到越大的順位。</li>
+  <li>之後是交換階段：可以向別人提出互換順位，被拒絕時可以挑戰（房主可關閉）。籌碼不消耗。</li>
   <li>發牌順序：手牌 → 3 張公牌 → 第 4 張 → 第 5 張，每次都重新選順位。</li>
   <li>最後順位和真實牌力順序一致就算成功，累計勝敗。每局結束後，房主決定下一局或全員回到大廳。</li>
   <li>特殊玩法（房主在大廳設定）：手牌改為 3 張；或跳過第 1–3 輪中的 1 輪，該輪的牌併入下一輪一起發。</li>
@@ -28,7 +28,7 @@ const RULES_TEXT = `<details class="rules"><summary>遊戲規則</summary><ol>
 
 function nameForm(title: string, button: string, onSubmit: (name: string) => void): void {
   app.innerHTML = `<section class="panel home">
-    <h1>排名撲克</h1>
+    <h1>All-in 排排站</h1>
     <p class="hint">${title}</p>
     <form><input name="name" maxlength="12" placeholder="你的暱稱" required value="${esc(savedName())}">
     <button class="primary big">${button}</button></form>

@@ -107,8 +107,8 @@ describe('lobby', () => {
     expect(t.act('P1', { type: 'settings', settings: { swapSeconds: 5 } })).toBe(false);
     t.act('P0', { type: 'settings', settings: { swapSeconds: 999, challenge: false } });
     expect(t.s.settings).toMatchObject({ swapSeconds: 180, challenge: false });
-    t.act('P0', { type: 'settings', settings: { introSeconds: 99, notifyStyle: 'nope' as never, sound: true } });
-    expect(t.s.settings).toMatchObject({ introSeconds: 5, notifyStyle: 'banner', sound: true });
+    t.act('P0', { type: 'settings', settings: { introSeconds: 99, notifyStyle: 'nope' as never } });
+    expect(t.s.settings).toMatchObject({ introSeconds: 5, notifyStyle: 'banner' });
     t.act('P0', { type: 'settings', settings: { holeCards: 4, skipRound: 4 } });
     expect(t.s.settings).toMatchObject({ holeCards: 2, skipRound: 0 });
     t.act('P0', { type: 'settings', settings: { holeCards: 3, skipRound: 2 } });

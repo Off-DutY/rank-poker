@@ -3,9 +3,9 @@ import { type NotifyStyle, type PublicState, RULES } from '../core/engine';
 import type { Session } from '../net/session';
 import { boardBurst, captureChips, createAnnouncer, dealCards, flashChips, hypeChip, playChipMoves, pop } from './effects';
 import { type Announcement, diffEvents } from './events';
-import { unlockAudio } from './sound';
-import { type Ctx, cards, handRankPanel, header, historyTable, lobby, rankChangeHtml, persistPrompt, persistWindow, pickLadder, showdownView, swapView } from './render';
-import { roomUrl } from './room';
+import { setMusic, unlockAudio } from './sound';
+import { type Ctx, betLabelHtml, cards, handRankPanel, header, historyTable, lobby, rankChangeHtml, persistPrompt, persistWindow, pickLadder, showdownView, swapView } from './render';
+import { audioPrefs, roomUrl, saveAudioPrefs } from './room';
 
 const REJECT_TEXT: Record<string, string> = {
   full: '房間已滿（13 人）。',
@@ -32,10 +32,20 @@ const REFRESH_MS = 100;
  */
 export function mountGame(root: HTMLElement, session: Session, code: string): void {
   root.innerHTML =
-    '<header id="hdr"></header><div id="ticker"></div><main id="main"></main><div id="announce" aria-live="polite"></div><div id="overlay"></div><aside id="handref" class="handref"></aside>';
+    '<header id="hdr"></header><div id="ticker"></div><main id="main"></main><div id="announce" aria-live="polite"></div><div id="overlay"></div><aside id="handref" class="handref"></aside><div id="audio" class="audio-ctl"></div>';
   const handref = root.querySelector<HTMLElement>('#handref')!;
   handref.innerHTML = handRankPanel();
   const hdr = root.querySelector<HTMLElement>('#hdr')!;
+  // Sound, music and vibration belong to this player only, so they live outside the room settings.
+  const audio = audioPrefs();
+  const audioCtl = root.querySelector<HTMLElement>('#audio')!;
+  const renderAudio = () => {
+    const btn = (key: 'sound' | 'music' | 'vibrate', on: string, off: string) =>
+      `<button class="${audio[key] ? 'on' : ''}" data-act="audio" data-key="${key}" aria-pressed="${audio[key]}">${audio[key] ? on : off}</button>`;
+    audioCtl.innerHTML = btn('sound', '🔊 音效', '🔇 音效') + btn('music', '🎵 音樂', '🎵 音樂關') + btn('vibrate', '📳 震動', '📴 震動');
+  };
+  renderAudio();
+  setMusic(audio.music);
   const announcer = createAnnouncer(root.querySelector<HTMLElement>('#announce')!, root.querySelector<HTMLElement>('#ticker')!, () =>
     session.hostNow(),
   );
@@ -64,6 +74,15 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
   const url = roomUrl(code);
   const startedAt = Date.now();
   const ui = { slider: 0, promptKey: '' };
+  /** Shows the betting word for the current slider position in the persistence window. */
+  const showBet = () => {
+    const el = root.querySelector<HTMLElement>('.bet-label');
+    if (!el) return;
+    const html = betLabelHtml(ui.slider);
+    if (el.innerHTML === html) return;
+    el.innerHTML = html;
+    pop(el.firstElementChild);
+  };
   const lastHtml = new WeakMap<HTMLElement, string>();
 
   const qr = document.createElement('canvas');
@@ -128,6 +147,7 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
     if (set(overlay, prompt ? persistWindow(ctx, prompt) : '')) {
       const slider = overlay.querySelector<HTMLInputElement>('input[type=range]');
       if (slider) slider.value = String(Math.round(ui.slider * 1000));
+      showBet();
     }
     updateCountdowns();
   };
@@ -224,8 +244,14 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
       case 'mode':
         session.act({ type: 'settings', settings: { challenge: d.mode === 'on' } });
         break;
-      case 'toggle':
-        if (d.key === 'sound' || d.key === 'vibrate') session.act({ type: 'settings', settings: { [d.key]: d.on !== '1' } });
+      case 'audio':
+        if (d.key === 'sound' || d.key === 'music' || d.key === 'vibrate') {
+          audio[d.key] = !audio[d.key];
+          saveAudioPrefs(audio);
+          renderAudio();
+          unlockAudio();
+          setMusic(audio.music);
+        }
         break;
       case 'preview':
         previewNotify();
@@ -267,7 +293,10 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
 
   root.addEventListener('input', (e) => {
     const el = e.target as HTMLInputElement;
-    if (el.dataset.act === 'slider') ui.slider = Number(el.value) / 1000;
+    if (el.dataset.act === 'slider') {
+      ui.slider = Number(el.value) / 1000;
+      showBet();
+    }
   });
 
   root.addEventListener('change', (e) => {
@@ -279,8 +308,8 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
 
   const notifyOptions = (pub: PublicState) => ({
     style: pub.settings.notifyStyle,
-    sound: pub.settings.sound,
-    vibrate: pub.settings.vibrate,
+    sound: audio.sound,
+    vibrate: audio.vibrate,
   });
 
   /** Shows a sample phase start with the current settings, on this device only. */

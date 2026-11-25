@@ -27,7 +27,7 @@ export interface Ctx {
 const nameOf = (pub: PublicState, id: PlayerId) => esc(pub.seats.find((s) => s.id === id)?.name ?? '?');
 /** Round names by round number (1..4). */
 export const ROUND_NAMES = ['', '翻牌前', '翻牌', '轉牌', '河牌'];
-const STAGE_NAMES: Record<string, string> = { PICK: '選順位', PERSIST: '執著度對決', SWAP: '交換順位' };
+const STAGE_NAMES: Record<string, string> = { PICK: '選順位', PERSIST: '籌碼對決', SWAP: '交換順位' };
 
 /** Seconds between 2 rows in the showdown reveal. */
 export const REVEAL_STEP_S = 0.8;
@@ -76,7 +76,7 @@ export function lobby(ctx: Ctx, url: string): string {
   const { pub, isHost } = ctx;
   const n = pub.seats.length;
   const modes: [string, string, string][] = [
-    ['on', '可以挑戰', '交換被拒絕時，可以用執著度挑戰'],
+    ['on', '可以挑戰', '交換被拒絕時，可以用籌碼挑戰'],
     ['off', '不能挑戰', '交換被拒絕就結束'],
   ];
   const swapOptions = [0, 30, 60, 90, 120, 180];
@@ -94,7 +94,7 @@ export function lobby(ctx: Ctx, url: string): string {
     </section>
     <section class="panel">
       <h2>房間設定</h2>
-      <div class="label">挑戰（執著度不消耗）</div>
+      <div class="label">挑戰（籌碼不消耗）</div>
       <div class="modes">${modes
         .map(
           ([m, label, desc]) => `<button class="mode${(pub.settings.challenge ? 'on' : 'off') === m ? ' on' : ''}" data-act="mode" data-mode="${m}" ${isHost ? '' : 'disabled'}>
@@ -127,11 +127,7 @@ export function lobby(ctx: Ctx, url: string): string {
       <select data-act="introSeconds" ${isHost ? '' : 'disabled'}>${[0, 2, 3, 5]
         .map((v) => `<option value="${v}"${pub.settings.introSeconds === v ? ' selected' : ''}>${v === 0 ? '不暫停（提示與倒數同時開始）' : `${v} 秒`}</option>`)
         .join('')}</select>
-      <div class="toggles">
-        ${toggle('sound', '音效', pub.settings.sound, isHost)}
-        ${toggle('vibrate', '震動', pub.settings.vibrate, isHost)}
-      </div>
-      <p class="hint">震動只在支援的手機有效（iPhone 不支援）。音效需要先點過畫面才會播放。</p>
+      <p class="hint">音效、音樂與震動由每位玩家自己用左下角的按鈕開關。震動只在支援的手機有效（iPhone 不支援）。</p>
       <button data-act="preview">在我的裝置預覽提示</button>
     </section>
     ${isHost ? `<button class="primary big" data-act="start" ${n < 3 ? 'disabled' : ''}>開始遊戲</button>` : '<p class="hint center">等待房主開始遊戲…</p>'}`;
@@ -143,11 +139,6 @@ const NOTIFY_OPTIONS: [NotifyStyle, string][] = [
   ['toast', '底部提示條'],
   ['ticker', '只顯示文字列：不跳出視窗'],
 ];
-
-function toggle(key: string, label: string, on: boolean, enabled: boolean): string {
-  return `<button class="mode${on ? ' on' : ''}" data-act="toggle" data-key="${key}" data-on="${on ? 1 : 0}" ${enabled ? '' : 'disabled'}>
-    <b>${label}</b><small>${on ? '開' : '關'}</small></button>`;
-}
 
 function seatItem(ctx: Ctx, s: Seat): string {
   const tags = [
@@ -263,7 +254,7 @@ export function pickLadder(ctx: Ctx): string {
       ? myPick?.locked
         ? '<p class="hint center">已鎖定，等待其他玩家…</p><button class="big" data-act="unlock">解除鎖定</button>'
         : `<button class="primary big" data-act="lock" ${myPick?.rank == null ? 'disabled' : ''}>鎖定順位</button>`
-      : '<p class="hint center">順位衝突：相關玩家正在表達執著度…</p>';
+      : '<p class="hint center">順位衝突：相關玩家正在下注籌碼…</p>';
   return `${countdown(pub.deadline, pub.phase === 'PICK' ? 20_000 : 10_000)}
     <div class="ladder">${rows.join('')}</div>
     ${unpicked.length ? `<div class="unpicked"><span class="label">尚未選擇</span>${unpicked.join('')}</div>` : ''}
@@ -374,7 +365,25 @@ export function persistPrompt(ctx: Ctx): PersistPrompt | null {
   return null;
 }
 
-/** Renders the persistence window. The slider has no scale and no numbers. */
+/**
+ * Returns the betting word for a slider position 0..1: fold at 0, all-in at 1, and call, raise, re-raise between.
+ * The window shows only this word, never a number.
+ */
+export function betLabel(value: number): { text: string; cls: string } {
+  if (value <= 0) return { text: '蓋牌', cls: 'fold' };
+  if (value >= 1) return { text: 'All-in！', cls: 'allin' };
+  if (value < 1 / 3) return { text: '跟注', cls: 'call' };
+  if (value < 2 / 3) return { text: '加注', cls: 'raise' };
+  return { text: '再加注', cls: 'reraise' };
+}
+
+/** Renders the bet label for a slider position. */
+export function betLabelHtml(value: number): string {
+  const b = betLabel(value);
+  return `<span class="${b.cls}">${b.text}</span>`;
+}
+
+/** Renders the persistence window. The slider has no scale and no numbers; a betting word shows the size. */
 export function persistWindow(ctx: Ctx, p: PersistPrompt): string {
   return `<div class="modal"><div class="dialog">
     <h2>${p.title}</h2>
@@ -386,9 +395,10 @@ export function persistWindow(ctx: Ctx, p: PersistPrompt): string {
     <div class="contest"><span class="label">爭奪的順位</span><div class="contest-rank">${p.contested}${rankHint(p.contested, ctx.pub.seats.length)}</div>
       <span class="label">1 最小 · ${ctx.pub.seats.length} 最大</span></div>
     ${p.detail}
-    <p class="hint">你有多執著？往右拉越執著。執著度不消耗。</p>
-    <div class="slider-wrap"><span>放手</span><input type="range" min="0" max="1000" step="1" data-act="slider"><span>死守</span></div>
-    <button class="primary big" data-act="persist">送出</button>
+    <p class="hint">你要下多少注？往右拉注碼越大，拉到底就是 All-in。籌碼不消耗。</p>
+    <div class="bet-label" aria-live="polite">${betLabelHtml(0)}</div>
+    <div class="slider-wrap"><span>蓋牌</span><input type="range" min="0" max="1000" step="1" data-act="slider" aria-label="下注大小"><span>All-in</span></div>
+    <button class="primary big" data-act="persist">下注</button>
   </div></div>`;
 }
 

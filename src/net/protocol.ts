@@ -1,7 +1,7 @@
 import type { JoinRejection, PlayerAction, PlayerId, PrivateState, PublicState } from '../core/engine';
 
 /** Protocol version. Players with a different version cannot join (spec 8). */
-export const PROTOCOL_VERSION = 7;
+export const PROTOCOL_VERSION = 8;
 
 /** Message from a player to the host. */
 export type ClientMsg =
@@ -49,8 +49,6 @@ export function parseClientMsg(raw: unknown): ClientMsg | 'version' | null {
       if (isNum(s.swapSeconds)) settings.swapSeconds = s.swapSeconds;
       if (isNum(s.introSeconds)) settings.introSeconds = s.introSeconds;
       if (typeof s.notifyStyle === 'string') settings.notifyStyle = s.notifyStyle;
-      if (typeof s.sound === 'boolean') settings.sound = s.sound;
-      if (typeof s.vibrate === 'boolean') settings.vibrate = s.vibrate;
       if (isNum(s.holeCards)) settings.holeCards = s.holeCards;
       if (isNum(s.skipRound)) settings.skipRound = s.skipRound;
       return { v, type: 'settings', settings };

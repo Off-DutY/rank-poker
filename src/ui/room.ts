@@ -74,3 +74,22 @@ export function markHost(code: string): void {
 export function wasHost(code: string): boolean {
   return read(session, 'rp.hostRoom') === code;
 }
+
+/** Sound, music and vibration choices of this player. Each player sets them on the own device; the host does not decide. */
+export interface AudioPrefs {
+  sound: boolean;
+  music: boolean;
+  vibrate: boolean;
+}
+
+const AUDIO_KEYS = ['sound', 'music', 'vibrate'] as const;
+
+/** Returns the saved choices. All are off by default. */
+export function audioPrefs(): AudioPrefs {
+  return Object.fromEntries(AUDIO_KEYS.map((k) => [k, read(local, `rp.${k}`) === '1'])) as unknown as AudioPrefs;
+}
+
+/** Saves the choices for next time. */
+export function saveAudioPrefs(p: AudioPrefs): void {
+  for (const k of AUDIO_KEYS) write(local, `rp.${k}`, p[k] ? '1' : '0');
+}

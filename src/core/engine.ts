@@ -35,8 +35,6 @@ export interface Settings {
   /** Pause before each timed phase starts, for the announcement. 0 starts the timer at once. */
   introSeconds: number;
   notifyStyle: NotifyStyle;
-  sound: boolean;
-  vibrate: boolean;
   /** Hole cards per player: 2 or 3. Strength is the best 5 of all hole and board cards. */
   holeCards: number;
   /** Round (1..3) that every hand skips; its cards come with the next round. 0 skips nothing. */
@@ -192,7 +190,7 @@ export function cleanName(raw: unknown): string {
 export function createGame(hostId: PlayerId, hostName: string): GameState {
   return {
     phase: 'LOBBY',
-    settings: { challenge: true, swapSeconds: 60, introSeconds: 3, notifyStyle: 'banner', sound: false, vibrate: false, holeCards: 2, skipRound: 0 },
+    settings: { challenge: true, swapSeconds: 60, introSeconds: 3, notifyStyle: 'banner', holeCards: 2, skipRound: 0 },
     hostId,
     seats: [{ id: hostId, name: cleanName(hostName), connected: true }],
     handNo: 0,
@@ -333,8 +331,6 @@ function updateSettings(s: GameState, patch: Partial<Settings>): boolean {
     s.settings.introSeconds = Math.min(RULES.maxIntroSeconds, Math.max(0, Math.round(patch.introSeconds)));
   }
   if (patch.notifyStyle && NOTIFY_STYLES.includes(patch.notifyStyle)) s.settings.notifyStyle = patch.notifyStyle;
-  if (typeof patch.sound === 'boolean') s.settings.sound = patch.sound;
-  if (typeof patch.vibrate === 'boolean') s.settings.vibrate = patch.vibrate;
   if (patch.holeCards === 2 || patch.holeCards === 3) s.settings.holeCards = patch.holeCards;
   if (patch.skipRound === 0 || patch.skipRound === 1 || patch.skipRound === 2 || patch.skipRound === 3) s.settings.skipRound = patch.skipRound;
   return true;

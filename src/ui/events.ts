@@ -42,7 +42,7 @@ export function diffEvents(prev: PublicState | null, next: PublicState, me: Play
       byRank.set(r, [...(byRank.get(r) ?? []), id]);
     }
     const lines = [...byRank.entries()].sort((a, b) => a[0] - b[0]).map(([r, ids]) => `順位 ${r}：${ids.map(name).join('、')} 爭奪`);
-    out.push({ kind: 'conflict', title: '順位衝突！', lines: [...lines, '相關玩家表達執著度…'] });
+    out.push({ kind: 'conflict', title: '順位衝突！', lines: [...lines, '相關玩家下注籌碼…'] });
   }
 
   // Picks were resolved into ranks.

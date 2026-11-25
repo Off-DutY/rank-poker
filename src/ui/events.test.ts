@@ -65,7 +65,7 @@ describe('diffEvents', () => {
     r.do('P0', { type: 'persist', value: 1 });
     r.do('P1', { type: 'persist', value: 0.1 });
     expect(r.log).toEqual([
-      '順位衝突！ / 順位 2：A、你 爭奪 / 相關玩家表達執著度…',
+      '順位衝突！ / 順位 2：A、你 爭奪 / 相關玩家下注籌碼…',
       '衝突結果 / 你：選 2 → 移到 1 / 接下來：交換階段 60 秒',
     ]);
   });

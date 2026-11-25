@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { seededRng } from '../core/cards';
 import { type Action, type GameState, type PlayerAction, createGame, publicView, reduce } from '../core/engine';
-import { rankChanges } from './render';
+import { betLabel, rankChanges } from './render';
 
 function play(steps: [string, PlayerAction][], skipRound = 0): GameState {
   let s = createGame('A', 'A');
@@ -56,5 +56,11 @@ describe('rankChanges', () => {
     expect(rankChanges(publicView(one))!.title).toBe('翻牌前的最終順位');
     const two = play([...pickAll({ A: 1, B: 2, C: 3 }), ...doneAll, ...pickAll({ A: 1, B: 2, C: 3 }), ...doneAll], 2);
     expect(rankChanges(publicView(two))!.title).toBe('翻牌前 → 轉牌 的順位變化');
+  });
+});
+
+describe('betLabel', () => {
+  it('names the slider position with a betting word: fold at 0, all-in only at the end', () => {
+    expect([0, 0.1, 0.4, 0.8, 0.999, 1].map((v) => betLabel(v).text)).toEqual(['蓋牌', '跟注', '加注', '再加注', '再加注', 'All-in！']);
   });
 });
