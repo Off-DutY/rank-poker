@@ -1,7 +1,7 @@
 import QRCode from 'qrcode';
 import { type NotifyStyle, type PublicState, RULES } from '../core/engine';
 import type { Session } from '../net/session';
-import { boardBurst, captureChips, createAnnouncer, dealCards, flashChips, playChipMoves, pop } from './effects';
+import { boardBurst, captureChips, createAnnouncer, dealCards, flashChips, hypeChip, playChipMoves, pop } from './effects';
 import { type Announcement, diffEvents } from './events';
 import { unlockAudio } from './sound';
 import { type Ctx, cards, handRankPanel, header, historyTable, lobby, rankChangeHtml, persistPrompt, persistWindow, pickLadder, showdownView, swapView } from './render';
@@ -49,6 +49,9 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
     locked: new Set<string>(),
     picks: {} as Record<string, number | null>,
     ranks: {} as Record<string, number>,
+    hype: {} as Record<string, number>,
+    /** Local times of recent hype clicks per player. Faster clicks give a stronger effect. */
+    hypeTimes: {} as Record<string, number[]>,
   };
   let lastPub: PublicState | null = null;
   /**
@@ -161,6 +164,15 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
         .filter(([id, p]) => p.rank != null && p.rank !== fx.picks[id] && p.rank > (pub.history[id]?.at(-1) ?? Infinity))
         .map(([id]) => id);
       flashChips(main, raised, 'rise-pop');
+      // A player keeps clicking the own rank: show the excitement to everyone.
+      const t = performance.now();
+      for (const [id, p] of Object.entries(pub.picks)) {
+        if (p.hype <= (fx.hype[id] ?? 0)) continue;
+        const times = (fx.hypeTimes[id] ?? []).filter((x) => t - x < 2_000);
+        times.push(t);
+        fx.hypeTimes[id] = times;
+        hypeChip(main, root, id, times.length >= 8 ? 3 : times.length >= 4 ? 2 : 1);
+      }
     }
     if (pub.phase === 'SWAP' && fx.phase === 'SWAP') {
       const swapped = Object.keys(pub.ranks).filter((id) => fx.ranks[id] != null && fx.ranks[id] !== pub.ranks[id]);
@@ -174,6 +186,7 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
     fx.locked = locked;
     fx.picks = Object.fromEntries(Object.entries(pub.picks).map(([id, p]) => [id, p.rank]));
     fx.ranks = { ...pub.ranks };
+    fx.hype = Object.fromEntries(Object.entries(pub.picks).map(([id, p]) => [id, p.hype]));
   };
 
   const updateCountdowns = () => {

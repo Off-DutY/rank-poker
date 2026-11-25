@@ -370,3 +370,14 @@ button.chip { border-color: var(--gold); }
 .handref .hr-cards { display: flex; gap: 2px; }
 .handref .card { width: 24px; height: 34px; font-size: 11px; margin: 0; }
 .handref .card small { font-size: 10px; color: inherit; }
+
+/* Excitement: a player keeps clicking the own current rank in the pick phase. */
+.chip.hype-1 { animation: hypeShake 0.35s ease-in-out; box-shadow: 0 0 10px rgba(231, 111, 81, 0.6); }
+.chip.hype-2 { animation: hypeShake 0.3s ease-in-out 2; background: var(--red); color: #fff; box-shadow: 0 0 16px rgba(231, 111, 81, 0.85); }
+.chip.hype-3 { animation: hypeShake 0.22s ease-in-out 4; background: var(--red); color: #fff; box-shadow: 0 0 26px rgba(255, 80, 40, 1); }
+.hype-fx { position: fixed; z-index: 25; pointer-events: none; font-size: 18px; transform: translate(-50%, -50%); animation: hypeFloat 1s ease-out forwards; }
+.hype-fx.lv2 { font-size: 22px; }
+.hype-fx.lv3 { font-size: 26px; }
+.hype-fx.word { font-size: 16px; font-weight: 900; color: var(--red); text-shadow: 0 0 6px rgba(0, 0, 0, 0.8); white-space: nowrap; }
+@keyframes hypeShake { 0%, 100% { transform: none; } 25% { transform: translateX(-3px) rotate(-4deg) scale(1.08); } 75% { transform: translateX(3px) rotate(4deg) scale(1.08); } }
+@keyframes hypeFloat { from { opacity: 1; transform: translate(-50%, -50%) scale(0.6); } 30% { transform: translate(-50%, -110%) scale(1.2); } to { opacity: 0; transform: translate(-50%, -260%) scale(1); } }

@@ -189,3 +189,32 @@ export function flashChips(root: HTMLElement, ids: Iterable<string>, cls: string
     el.classList.add(cls);
   }
 }
+
+/** Floating marks per hype level 1..3. */
+const HYPE_MARKS = ['❗', '🔥', '💢'];
+
+/**
+ * Plays the excitement effect on a player chip in the pick ladder: a shake and a glow, plus a mark that floats up.
+ * The mark lives in `layer`, outside the ladder, so the next render does not cut it off.
+ * @param level 1 (calm clicks) to 3 (very fast clicks).
+ */
+export function hypeChip(root: HTMLElement, layer: HTMLElement, id: string, level: number): void {
+  if (reducedMotion()) return;
+  const el = root.querySelector<HTMLElement>(`.ladder [data-pid="${id}"]`);
+  if (!el) return;
+  el.classList.remove('hype-1', 'hype-2', 'hype-3');
+  void el.offsetWidth;
+  el.classList.add(`hype-${level}`);
+  const box = el.getBoundingClientRect();
+  const marks = level === 3 ? ['激動！', HYPE_MARKS[2]!] : [HYPE_MARKS[level - 1]!];
+  for (const text of marks) {
+    const fx = document.createElement('span');
+    fx.className = `hype-fx lv${level}${text.length > 2 ? ' word' : ''}`;
+    fx.setAttribute('aria-hidden', 'true');
+    fx.textContent = text;
+    fx.style.left = `${box.left + box.width / 2 + (Math.random() - 0.5) * box.width}px`;
+    fx.style.top = `${box.top}px`;
+    layer.append(fx);
+    setTimeout(() => fx.remove(), 1_000);
+  }
+}

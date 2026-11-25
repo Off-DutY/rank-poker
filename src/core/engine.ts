@@ -19,6 +19,8 @@ export const RULES = {
   /** Extra intro time when cards are dealt or revealed (every round), for the big reveal effect. Only when the intro is on. */
   boardRevealMs: 2_000,
   maxNameLength: 12,
+  /** Minimum time between 2 counted clicks on the own current rank. The host drops faster clicks. */
+  hypeMs: 150,
 } as const;
 
 /** How players see announcements. */
@@ -72,6 +74,10 @@ export const BOT_ID_PREFIX = 'bot-';
 export interface Pick {
   rank: number | null;
   locked: boolean;
+  /** Clicks on the same rank again in this round. Other players see it as excitement. A new rank resets it. */
+  hype: number;
+  /** Host time of the last counted hype click. */
+  hypeAt: number;
 }
 
 /**
@@ -261,7 +267,7 @@ function apply(s: GameState, a: Action, now: number, rng: Rng): boolean {
       deal(s, now, rng);
       return true;
     case 'pick':
-      return pick(s, a.id, a.rank);
+      return pick(s, a.id, a.rank, now);
     case 'lock':
       return lock(s, a.id, now, rng);
     case 'unlock':
@@ -358,18 +364,26 @@ function deal(s: GameState, now: number, rng: Rng): void {
 
 function startPick(s: GameState, now: number): void {
   s.phase = 'PICK';
-  s.picks = Object.fromEntries(s.seats.map((x) => [x.id, { rank: s.ranks[x.id] ?? null, locked: false }]));
+  s.picks = Object.fromEntries(s.seats.map((x) => [x.id, { rank: s.ranks[x.id] ?? null, locked: false, hype: 0, hypeAt: 0 }]));
   s.conflict = null;
   s.swap = null;
   // Every round deals or reveals cards (hole cards, flop, turn, river): give the big reveal its own time.
   s.deadline = startTimer(s, now, RULES.boardRevealMs) + RULES.pickMs;
 }
 
-function pick(s: GameState, id: PlayerId, rank: number): boolean {
+/** Sets the pick. A click on the current rank again counts as hype, at most once per {@link RULES.hypeMs}. */
+function pick(s: GameState, id: PlayerId, rank: number, now: number): boolean {
   const p = s.picks[id];
   if (s.phase !== 'PICK' || !p || p.locked) return false;
   if (!Number.isInteger(rank) || rank < 1 || rank > s.seats.length) return false;
+  if (p.rank === rank) {
+    if (now - p.hypeAt < RULES.hypeMs) return false;
+    p.hype += 1;
+    p.hypeAt = now;
+    return true;
+  }
   p.rank = rank;
+  p.hype = 0;
   return true;
 }
 

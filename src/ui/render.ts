@@ -214,7 +214,9 @@ function chip(ctx: Ctx, id: PlayerId, extra = '', attrs = '', badge: ChipBadge =
     if (ranks.length > 1) small = `<small class="prev" title="順位歷程">${ranks.join('→')}</small>`;
   }
   const tag = attrs ? 'button' : 'span';
-  return `<${tag} class="${classes.filter(Boolean).join(' ')}" data-pid="${id}" ${attrs}>${nameOf(ctx.pub, id)}${small}</${tag}>`;
+  // The hype count is in the markup, so a hype click changes the page and the app plays the effect.
+  const hype = badge.kind === 'last' ? ` data-hype="${ctx.pub.picks[id]?.hype ?? 0}"` : '';
+  return `<${tag} class="${classes.filter(Boolean).join(' ')}" data-pid="${id}"${hype} ${attrs}>${nameOf(ctx.pub, id)}${small}</${tag}>`;
 }
 
 /**

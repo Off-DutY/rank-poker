@@ -214,7 +214,7 @@ describe('pick phase', () => {
     expect(t.act('P0', { type: 'unlock' })).toBe(false);
     expect(t.act('P0', { type: 'pick', rank: 3 })).toBe(true);
     t.act('P0', { type: 'lock' });
-    expect(t.s.picks.P0).toEqual({ rank: 3, locked: true });
+    expect(t.s.picks.P0).toMatchObject({ rank: 3, locked: true });
   });
 
   it('cannot unlock after the last player locks', () => {
@@ -235,9 +235,24 @@ describe('pick phase', () => {
     expect(t.s.phase).toBe('PICK');
     t.advance(RULES.graceMs);
     expect(t.s.phase).toBe('SWAP');
-    expect(t.s.picks.P0).toEqual({ rank: 4, locked: true });
+    expect(t.s.picks.P0).toMatchObject({ rank: 4, locked: true });
     expect(t.s.ranks.P1).toBeLessThan(t.s.ranks.P0!);
     expect(Object.values(t.s.ranks).sort()).toEqual([1, 2, 3, 4]);
+  });
+
+  it('counts clicks on the current rank as hype, at most once per hypeMs, and resets on a new rank', () => {
+    t.act('P0', { type: 'pick', rank: 2 });
+    expect(t.s.picks.P0!.hype).toBe(0);
+    expect(t.act('P0', { type: 'pick', rank: 2 })).toBe(true);
+    expect(t.act('P0', { type: 'pick', rank: 2 })).toBe(false);
+    t.now += RULES.hypeMs;
+    expect(t.act('P0', { type: 'pick', rank: 2 })).toBe(true);
+    expect(publicView(t.s).picks.P0!.hype).toBe(2);
+    t.act('P0', { type: 'pick', rank: 3 });
+    expect(t.s.picks.P0!.hype).toBe(0);
+    t.act('P0', { type: 'lock' });
+    t.now += RULES.hypeMs;
+    expect(t.act('P0', { type: 'pick', rank: 3 })).toBe(false);
   });
 
   it('accepts actions inside the grace period', () => {
@@ -250,7 +265,7 @@ describe('pick phase', () => {
     t.allDone();
     expect(t.s.round).toBe(2);
     expect(t.s.board).toHaveLength(3);
-    expect(t.s.picks.P0).toEqual({ rank: 4, locked: false });
+    expect(t.s.picks.P0).toMatchObject({ rank: 4, locked: false });
   });
 });
 
