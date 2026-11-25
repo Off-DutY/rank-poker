@@ -1,5 +1,5 @@
 import type { Card } from '../core/cards';
-import type { NotifyStyle, PlayerId, PrivateState, PublicState, PublicSwapRequest, Seat } from '../core/engine';
+import { type NotifyStyle, type PlayerId, type PrivateState, type PublicState, type PublicSwapRequest, type Seat, playedRounds } from '../core/engine';
 
 /** Escapes text for HTML. All player-provided text must go through it (spec 11). */
 export function esc(s: string): string {
@@ -25,8 +25,9 @@ export interface Ctx {
 }
 
 const nameOf = (pub: PublicState, id: PlayerId) => esc(pub.seats.find((s) => s.id === id)?.name ?? '?');
-const ROUND_NAMES = ['', '翻牌前', '翻牌', '轉牌', '河牌'];
-const STAGE_NAMES: Record<string, string> = { PICK: '選名次', PERSIST: '執著度對決', SWAP: '交換名次' };
+/** Round names by round number (1..4). */
+export const ROUND_NAMES = ['', '翻牌前', '翻牌', '轉牌', '河牌'];
+const STAGE_NAMES: Record<string, string> = { PICK: '選順位', PERSIST: '執著度對決', SWAP: '交換順位' };
 
 /** Seconds between 2 rows in the showdown reveal. */
 export const REVEAL_STEP_S = 0.8;
@@ -61,15 +62,13 @@ export function header(ctx: Ctx, code: string): string {
     ${stepper(pub)}`;
 }
 
-/** Renders the hand progress: 4 rounds and the showdown. Empty outside a hand. */
+/** Renders the hand progress: the played rounds and the showdown. Empty outside a hand. */
 function stepper(pub: PublicState): string {
   if (pub.phase === 'LOBBY' || pub.phase === 'MATCH_END') return '';
   const current = pub.phase === 'SHOWDOWN' ? 5 : pub.round;
-  const names = [...ROUND_NAMES.slice(1), '攤牌'];
-  const steps = names.map((label, i) => {
-    const n = i + 1;
+  const steps = [...playedRounds(pub.settings), 5].map((n) => {
     const cls = n < current ? 'done' : n === current ? 'now' : '';
-    return `<li class="${cls}"><span class="dot"></span><span class="txt">${label}</span></li>`;
+    return `<li class="${cls}"><span class="dot"></span><span class="txt">${n === 5 ? '攤牌' : ROUND_NAMES[n]}</span></li>`;
   });
   return `<ol class="stepper">${steps.join('')}</ol>`;
 }
@@ -106,6 +105,17 @@ export function lobby(ctx: Ctx, url: string): string {
       <div class="label">交換階段長度</div>
       <select data-act="swapSeconds" ${isHost ? '' : 'disabled'}>${swapOptions
         .map((s) => `<option value="${s}"${pub.settings.swapSeconds === s ? ' selected' : ''}>${s === 0 ? '不交換' : `${s} 秒`}</option>`)
+        .join('')}</select>
+    </section>
+    <section class="panel">
+      <h2>特殊玩法</h2>
+      <div class="label">手牌張數（用全部手牌與公牌中最好的 5 張比大小）</div>
+      <select data-act="holeCards" ${isHost ? '' : 'disabled'}>${[2, 3]
+        .map((v) => `<option value="${v}"${pub.settings.holeCards === v ? ' selected' : ''}>${v} 張</option>`)
+        .join('')}</select>
+      <div class="label">跳過回合（該回合的牌併入下一回合一起發）</div>
+      <select data-act="skipRound" ${isHost ? '' : 'disabled'}>${[0, 1, 2, 3]
+        .map((v) => `<option value="${v}"${pub.settings.skipRound === v ? ' selected' : ''}>${v === 0 ? '不跳過' : `跳過第 ${v} 輪（${ROUND_NAMES[v]}）`}</option>`)
         .join('')}</select>
     </section>
     <section class="panel">
@@ -148,13 +158,18 @@ function seatItem(ctx: Ctx, s: Seat): string {
 /** Renders the cards: board and own hole cards. */
 export function cards(ctx: Ctx): string {
   const board = Array.from({ length: 5 }, (_, i) => card(ctx.pub.board[i] ?? null)).join('');
-  const hole = ctx.priv.hole ? ctx.priv.hole.map(card).join('') : card(null) + card(null);
+  const hole = holeHtml(ctx);
   const budget =
     ctx.priv.budget == null
       ? ''
       : `<div class="budget" title="剩餘執著度"><div style="width:${Math.round(ctx.priv.budget * 100)}%"></div></div>`;
   return `<div class="board">${board}</div>
     <div class="mine"><div class="hole">${hole}</div><div class="mine-side"><span class="label">你的手牌</span>${budget}</div></div>`;
+}
+
+/** Renders the own hole cards, or card backs (one per hole card) when they are hidden. */
+function holeHtml(ctx: Ctx): string {
+  return (ctx.priv.hole ?? Array<null>(ctx.pub.settings.holeCards).fill(null)).map(card).join('');
 }
 
 /** Returns the "smallest" / "largest" hint for a rank, or an empty string. */
@@ -189,13 +204,13 @@ function chip(ctx: Ctx, id: PlayerId, extra = '', attrs = '', badge: ChipBadge =
     const last = lastRank(ctx.pub, id);
     if (last != null && badge.pick != null && badge.pick > last) {
       classes.push('rise');
-      small = `<small class="prev" title="上一輪名次">前 ${last} <b class="rise-mark">↑+${badge.pick - last}</b></small>`;
+      small = `<small class="prev" title="上一輪順位">前 ${last} <b class="rise-mark">↑+${badge.pick - last}</b></small>`;
     } else if (last != null) {
-      small = `<small class="prev" title="上一輪名次">前 ${last}</small>`;
+      small = `<small class="prev" title="上一輪順位">前 ${last}</small>`;
     }
   } else if (badge.kind === 'trail') {
     const ranks = [...(ctx.pub.history[id] ?? []), ctx.pub.ranks[id]].filter((r) => r != null);
-    if (ranks.length > 1) small = `<small class="prev" title="名次歷程">${ranks.join('→')}</small>`;
+    if (ranks.length > 1) small = `<small class="prev" title="順位歷程">${ranks.join('→')}</small>`;
   }
   const tag = attrs ? 'button' : 'span';
   return `<${tag} class="${classes.filter(Boolean).join(' ')}" data-pid="${id}" ${attrs}>${nameOf(ctx.pub, id)}${small}</${tag}>`;
@@ -244,8 +259,8 @@ export function pickLadder(ctx: Ctx): string {
     pub.phase === 'PICK'
       ? myPick?.locked
         ? '<p class="hint center">已鎖定，等待其他玩家…</p><button class="big" data-act="unlock">解除鎖定</button>'
-        : `<button class="primary big" data-act="lock" ${myPick?.rank == null ? 'disabled' : ''}>鎖定名次</button>`
-      : '<p class="hint center">名次衝突：相關玩家正在表達執著度…</p>';
+        : `<button class="primary big" data-act="lock" ${myPick?.rank == null ? 'disabled' : ''}>鎖定順位</button>`
+      : '<p class="hint center">順位衝突：相關玩家正在表達執著度…</p>';
   return `${countdown(pub.deadline, pub.phase === 'PICK' ? 20_000 : 10_000)}
     <div class="ladder">${rows.join('')}</div>
     ${unpicked.length ? `<div class="unpicked"><span class="label">尚未選擇</span>${unpicked.join('')}</div>` : ''}
@@ -295,7 +310,7 @@ export function swapView(ctx: Ctx, now: number): string {
     .join('');
   const done = swap.done[me];
   return `${countdown(pub.deadline, pub.settings.swapSeconds * 1000)}
-    <p class="hint">點選其他玩家，提出交換名次。</p>
+    <p class="hint">點選其他玩家，提出交換順位。</p>
     ${mine.join('')}
     <div class="ladder">${rows.join('')}</div>
     <button class="${done ? '' : 'primary '}big" data-act="done" data-done="${done ? 0 : 1}">${done ? '取消完成' : '完成交換'}</button>
@@ -307,7 +322,7 @@ function myRequest(ctx: Ctx, r: PublicSwapRequest): string {
   const other = nameOf(pub, r.from === me ? r.to : r.from);
   let body = '';
   if (r.status === 'pending' && r.to === me) {
-    body = `<b>${other}</b> 想和你交換名次${duel(ctx, r.from, r.to, pub.ranks[r.to]!)}
+    body = `<b>${other}</b> 想和你交換順位${duel(ctx, r.from, r.to, pub.ranks[r.to]!)}
       <div class="row"><button class="primary" data-act="swapResp" data-req="${r.id}" data-accept="1">同意</button>
       <button data-act="swapResp" data-req="${r.id}" data-accept="0">拒絕</button></div>`;
   } else if (r.status === 'pending') {
@@ -343,13 +358,13 @@ export function persistPrompt(ctx: Ctx): PersistPrompt | null {
     const rows = ids
       .map((id) => `<tr${id === me ? ' class="me"' : ''}><td>${id === me ? '你' : nameOf(pub, id)}</td><td>${trail(pub, id)}</td></tr>`)
       .join('');
-    const detail = `<table class="rivals"><thead><tr><th>搶這個名次的玩家</th><th>前幾輪名次</th></tr></thead><tbody>${rows}</tbody></table>`;
-    return { key: `c${pub.handNo}-${pub.round}`, title: `${ids.length} 人搶同一個名次`, deadline: pub.deadline, contested: rank, detail };
+    const detail = `<table class="rivals"><thead><tr><th>搶這個順位的玩家</th><th>前幾輪順位</th></tr></thead><tbody>${rows}</tbody></table>`;
+    return { key: `c${pub.handNo}-${pub.round}`, title: `${ids.length} 人搶同一個順位`, deadline: pub.deadline, contested: rank, detail };
   }
   const r = pub.swap?.requests.find((x) => x.status === 'challenge' && (x.from === me || x.to === me) && !x.submitted.includes(me));
   if (r) {
     const other = nameOf(pub, r.from === me ? r.to : r.from);
-    const title = r.from === me ? `挑戰 ${other}：搶下對方的名次` : `${other} 向你挑戰：守住你的名次`;
+    const title = r.from === me ? `挑戰 ${other}：搶下對方的順位` : `${other} 向你挑戰：守住你的順位`;
     const contested = pub.ranks[r.to]!;
     return { key: `s${pub.handNo}-${pub.round}-${r.id}`, title, deadline: r.deadline, contested, detail: duel(ctx, r.from, r.to, contested) };
   }
@@ -367,9 +382,9 @@ export function persistWindow(ctx: Ctx, p: PersistPrompt): string {
     ${countdown(p.deadline, 10_000)}
     <div class="dialog-cards" aria-label="公牌與你的手牌">
       <div class="board">${Array.from({ length: 5 }, (_, i) => card(ctx.pub.board[i] ?? null)).join('')}</div>
-      <div class="hole"><span class="label">你的手牌</span>${(ctx.priv.hole ?? [null, null]).map(card).join('')}</div>
+      <div class="hole"><span class="label">你的手牌</span>${holeHtml(ctx)}</div>
     </div>
-    <div class="contest"><span class="label">爭奪的名次</span><div class="contest-rank">${p.contested}${rankHint(p.contested, ctx.pub.seats.length)}</div>
+    <div class="contest"><span class="label">爭奪的順位</span><div class="contest-rank">${p.contested}${rankHint(p.contested, ctx.pub.seats.length)}</div>
       <span class="label">1 最小 · ${ctx.pub.seats.length} 最大</span></div>
     ${p.detail}
     <p class="hint">你有多執著？往右拉越執著。${ctx.priv.budget == null ? '' : '投入的量會從預算扣除，輸了也一樣。'}</p>
@@ -404,7 +419,7 @@ export function showdownView(ctx: Ctx): string {
   return `<div class="result-slot" ${done}><div class="result pending">比對中…</div>
       <div class="result final ${sd.success ? 'ok' : 'bad'}">${sd.success ? '成功！排序完全正確' : '失敗，排序有錯'}</div></div>
     <div class="board">${pub.board.map(card).join('')}</div>
-    <table class="showdown"><thead><tr><th>名次</th><th>玩家</th><th>手牌</th><th>牌型</th><th>正解</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+    <table class="showdown"><thead><tr><th>順位</th><th>玩家</th><th>手牌</th><th>牌型</th><th>正解</th><th></th></tr></thead><tbody>${rows}</tbody></table>
     <div class="after-reveal" ${done}>
     ${historyTable(ctx)}
     ${isHost ? `<button class="primary big" data-act="next">${nextLabel}</button>` : '<p class="hint center">等待房主繼續…</p>'}</div>`;
@@ -420,7 +435,11 @@ export function historyTable(ctx: Ctx): string {
   if (rounds === 0) return '';
   const latest = (id: PlayerId) => pub.history[id]![rounds - 1] ?? Number.MAX_SAFE_INTEGER;
   const ids = pub.seats.map((s) => s.id).filter((id) => pub.history[id]).sort((a, b) => latest(a) - latest(b));
-  const head = ROUND_NAMES.slice(1, rounds + 1).map((name) => `<th>${name}</th>`).join('');
+  // History index i belongs to the i-th played round; a skipped round has no column.
+  const head = playedRounds(pub.settings)
+    .slice(0, rounds)
+    .map((r) => `<th>${ROUND_NAMES[r]}</th>`)
+    .join('');
   const rows = ids
     .map((id) => {
       const h = pub.history[id]!;
@@ -434,7 +453,7 @@ export function historyTable(ctx: Ctx): string {
       return `<tr${id === me ? ' class="me"' : ''}><td>${nameOf(pub, id)}</td>${cells}</tr>`;
     })
     .join('');
-  return `<section class="history"><div class="label">各輪名次（每輪交換結束後）</div>
+  return `<section class="history"><div class="label">各輪順位（每輪交換結束後）</div>
     <table><thead><tr><th>玩家</th>${head}</tr></thead><tbody>${rows}</tbody></table></section>`;
 }
 
@@ -464,11 +483,13 @@ export function rankChanges(pub: PublicState): { title: string; rows: RankChange
   let title: string;
   let rows: RankChange[];
   if (pub.phase === 'SWAP') {
-    title = '名次確定：選擇 → 結果';
+    title = '順位確定：選擇 → 結果';
     rows = ids.filter((id) => pub.ranks[id] != null).map((id) => ({ id, from: pub.picks[id]?.rank ?? null, to: pub.ranks[id]! }));
-  } else if (pub.phase === 'PICK' && pub.round >= 2) {
-    const prevName = ROUND_NAMES[pub.round - 1];
-    title = pub.round >= 3 ? `${ROUND_NAMES[pub.round - 2]} → ${prevName} 的名次變化` : `${prevName}的最終名次`;
+  } else if (pub.phase === 'PICK' && playedRounds(pub.settings).indexOf(pub.round) >= 1) {
+    const played = playedRounds(pub.settings);
+    const i = played.indexOf(pub.round);
+    const prevName = ROUND_NAMES[played[i - 1]!];
+    title = i >= 2 ? `${ROUND_NAMES[played[i - 2]!]} → ${prevName} 的順位變化` : `${prevName}的最終順位`;
     rows = ids
       .filter((id) => pub.history[id]?.length)
       .map((id) => {
@@ -514,4 +535,28 @@ export function rankChangeHtml(pub: PublicState, me: PlayerId): string {
     })
     .join('');
   return `<section class="rank-change"><div class="rc-title">${rc.title}</div><ol>${rows}</ol></section>`;
+}
+
+/** Hand categories from strongest to weakest, with 1 example hand each. Names match `CATEGORY_NAMES`. */
+const HAND_RANKS: [name: string, example: Card[], note: string][] = [
+  ['同花順', ['As', 'Ks', 'Qs', 'Js', 'Ts'], '同花色的順子。A 到 10 是最大的皇家同花順'],
+  ['四條', ['9c', '9d', '9h', '9s', 'Kd'], '4 張同點數'],
+  ['葫蘆', ['Qh', 'Qd', 'Qs', '7c', '7h'], '三條 + 一對'],
+  ['同花', ['Kh', 'Th', '8h', '5h', '2h'], '5 張同花色'],
+  ['順子', ['9d', '8c', '7s', '6h', '5d'], '5 張連續點數。A-2-3-4-5 是最小的順子'],
+  ['三條', ['7s', '7h', '7d', 'Kc', '2s'], '3 張同點數'],
+  ['兩對', ['Jc', 'Jd', '4s', '4h', 'Ac'], '2 組對子'],
+  ['一對', ['Ts', 'Th', 'Ad', '8c', '3s'], '2 張同點數'],
+  ['高牌', ['Ac', 'Jd', '8s', '5h', '3c'], '以上都不是，比最大的單張'],
+];
+
+/** Renders the side panel with the hand categories. Players open and close it at any time. */
+export function handRankPanel(): string {
+  const rows = HAND_RANKS.map(
+    ([name, ex, note], i) =>
+      `<li><div class="hr-head"><b>${HAND_RANKS.length - i}. ${name}</b><span class="hr-cards">${ex.map(card).join('')}</span></div><small>${note}</small></li>`,
+  ).join('');
+  return `<button class="handref-tab" data-act="handref" aria-expanded="false" aria-controls="handref-body">牌型</button>
+    <div class="handref-body" id="handref-body"><div class="handref-top"><b>牌型大小（大 → 小）</b><button class="handref-close" data-act="handref" aria-label="收合">✕</button></div>
+    <ol>${rows}</ol><p class="hint">同牌型時比點數；用全部手牌與公牌中最好的 5 張。</p></div>`;
 }

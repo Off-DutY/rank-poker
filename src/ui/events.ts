@@ -1,4 +1,5 @@
-import type { PlayerId, PublicState } from '../core/engine';
+import { type PlayerId, type PublicState, boardSize } from '../core/engine';
+import { ROUND_NAMES as ROUND_LABEL } from './render';
 
 /** Kind of announcement. Sets the color of the banner. */
 export type AnnouncementKind = 'info' | 'conflict' | 'swap' | 'result';
@@ -40,8 +41,8 @@ export function diffEvents(prev: PublicState | null, next: PublicState, me: Play
       const r = next.picks[id]!.rank!;
       byRank.set(r, [...(byRank.get(r) ?? []), id]);
     }
-    const lines = [...byRank.entries()].sort((a, b) => a[0] - b[0]).map(([r, ids]) => `名次 ${r}：${ids.map(name).join('、')} 爭奪`);
-    out.push({ kind: 'conflict', title: '名次衝突！', lines: [...lines, '相關玩家表達執著度…'] });
+    const lines = [...byRank.entries()].sort((a, b) => a[0] - b[0]).map(([r, ids]) => `順位 ${r}：${ids.map(name).join('、')} 爭奪`);
+    out.push({ kind: 'conflict', title: '順位衝突！', lines: [...lines, '相關玩家表達執著度…'] });
   }
 
   // Picks were resolved into ranks.
@@ -57,9 +58,9 @@ export function diffEvents(prev: PublicState | null, next: PublicState, me: Play
       else if (pick !== rank) moved.push(`${name(id)}：選 ${pick} → 移到 ${rank}`);
     }
     const hadConflict = prev.phase === 'PERSIST';
-    const lines = moved.length ? moved : ['每個人都拿到自己選的名次'];
+    const lines = moved.length ? moved : ['每個人都拿到自己選的順位'];
     if (next.phase === 'SWAP') lines.push(`接下來：交換階段 ${next.settings.swapSeconds} 秒`);
-    out.push({ kind: hadConflict ? 'conflict' : 'info', title: hadConflict ? '衝突結果' : '名次確定', lines });
+    out.push({ kind: hadConflict ? 'conflict' : 'info', title: hadConflict ? '衝突結果' : '順位確定', lines });
   }
 
   // Swap requests changed during the swap phase.
@@ -70,11 +71,11 @@ export function diffEvents(prev: PublicState | null, next: PublicState, me: Play
       const a = name(r.from);
       const b = name(r.to);
       if (!before) out.push({ kind: 'swap', title: `${a} 向 ${b} 提出交換`, lines: [`${prev.ranks[r.from]} ⇄ ${prev.ranks[r.to]}`] });
-      else if (r.status === 'accepted') out.push({ kind: 'swap', title: `${a} ⇄ ${b} 交換名次`, lines: [`${a} → ${next.ranks[r.from]}`, `${b} → ${next.ranks[r.to]}`] });
+      else if (r.status === 'accepted') out.push({ kind: 'swap', title: `${a} ⇄ ${b} 交換順位`, lines: [`${a} → ${next.ranks[r.from]}`, `${b} → ${next.ranks[r.to]}`] });
       else if (r.status === 'deciding' || r.status === 'declined') out.push({ kind: 'swap', title: `${b} 拒絕交換`, lines: [] });
-      else if (r.status === 'challenge') out.push({ kind: 'conflict', title: `${a} 向 ${b} 發起挑戰！`, lines: [`爭奪名次 ${next.ranks[r.to]}`] });
-      else if (r.status === 'won') out.push({ kind: 'conflict', title: `${a} 挑戰成功`, lines: [`${a} 搶下名次 ${next.ranks[r.from]}`, `${b} 移到 ${next.ranks[r.to]}`] });
-      else if (r.status === 'lost') out.push({ kind: 'conflict', title: `${b} 守住名次 ${next.ranks[r.to]}`, lines: [`${a} 挑戰失敗`] });
+      else if (r.status === 'challenge') out.push({ kind: 'conflict', title: `${a} 向 ${b} 發起挑戰！`, lines: [`爭奪順位 ${next.ranks[r.to]}`] });
+      else if (r.status === 'won') out.push({ kind: 'conflict', title: `${a} 挑戰成功`, lines: [`${a} 搶下順位 ${next.ranks[r.from]}`, `${b} 移到 ${next.ranks[r.to]}`] });
+      else if (r.status === 'lost') out.push({ kind: 'conflict', title: `${b} 守住順位 ${next.ranks[r.to]}`, lines: [`${a} 挑戰失敗`] });
     }
   }
 
@@ -88,13 +89,22 @@ export function diffEvents(prev: PublicState | null, next: PublicState, me: Play
   }
 
   if (next.phase === 'PICK' && next.handNo > prev.handNo) {
-    out.push({ kind: 'info', title: `第 ${next.handNo} 局開始`, lines: ['每人發 2 張手牌', '翻牌前：選擇名次'] });
+    const lines = [`每人發 ${next.settings.holeCards} 張手牌`];
+    if (next.round > 1) lines.push(`跳過翻牌前：同時發出 ${boardSize(next.round)} 張公牌`);
+    out.push({ kind: 'info', title: `第 ${next.handNo} 局開始`, lines: [...lines, `${ROUND_LABEL[next.round]}：選擇順位`] });
   } else if (next.phase === 'PICK' && sameHand && next.round > prev.round) {
-    out.push({ kind: 'info', title: ROUND_TEXT[next.round] ?? `第 ${next.round} 輪`, lines: ['重新選擇名次'] });
+    if (next.round === prev.round + 1) {
+      out.push({ kind: 'info', title: ROUND_TEXT[next.round] ?? `第 ${next.round} 輪`, lines: ['重新選擇順位'] });
+    } else {
+      // A skipped round: its cards come together with this round.
+      const added = boardSize(next.round) - boardSize(prev.round);
+      const skipped = ROUND_LABEL[prev.round + 1];
+      out.push({ kind: 'info', title: `${ROUND_LABEL[next.round]}：一次發出 ${added} 張公牌`, lines: [`跳過${skipped}`, '重新選擇順位'] });
+    }
   }
 
   if (next.phase === 'SHOWDOWN' && prev.phase !== 'SHOWDOWN') {
-    out.push({ kind: 'result', title: '攤牌！', lines: ['公開所有手牌，從名次 1 開始比對'] });
+    out.push({ kind: 'result', title: '攤牌！', lines: ['公開所有手牌，從順位 1 開始比對'] });
   }
   if (next.phase === 'MATCH_END' && prev.phase !== 'MATCH_END') out.push({ kind: 'result', title: '本場結束', lines: [] });
   if (next.phase === 'LOBBY' && prev.phase !== 'LOBBY') out.push({ kind: 'info', title: '回到大廳', lines: ['房主可以開始新的一場'] });

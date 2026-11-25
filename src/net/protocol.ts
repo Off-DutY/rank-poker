@@ -50,6 +50,8 @@ export function parseClientMsg(raw: unknown): ClientMsg | 'version' | null {
       if (typeof s.notifyStyle === 'string') settings.notifyStyle = s.notifyStyle;
       if (typeof s.sound === 'boolean') settings.sound = s.sound;
       if (typeof s.vibrate === 'boolean') settings.vibrate = s.vibrate;
+      if (isNum(s.holeCards)) settings.holeCards = s.holeCards;
+      if (isNum(s.skipRound)) settings.skipRound = s.skipRound;
       return { v, type: 'settings', settings };
     }
     case 'pick':

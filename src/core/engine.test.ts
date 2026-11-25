@@ -109,6 +109,10 @@ describe('lobby', () => {
     expect(t.s.settings).toMatchObject({ swapSeconds: 180, persistenceMode: 'free' });
     t.act('P0', { type: 'settings', settings: { introSeconds: 99, notifyStyle: 'nope' as never, sound: true } });
     expect(t.s.settings).toMatchObject({ introSeconds: 5, notifyStyle: 'banner', sound: true });
+    t.act('P0', { type: 'settings', settings: { holeCards: 4, skipRound: 4 } });
+    expect(t.s.settings).toMatchObject({ holeCards: 2, skipRound: 0 });
+    t.act('P0', { type: 'settings', settings: { holeCards: 3, skipRound: 2 } });
+    expect(t.s.settings).toMatchObject({ holeCards: 3, skipRound: 2 });
   });
 });
 
@@ -120,6 +124,40 @@ describe('deal', () => {
     expect(cards).toHaveLength(31);
     expect(new Set(cards).size).toBe(31);
     expect(t.s.board).toEqual([]);
+  });
+
+  it('deals 3 unique hole cards per player when holeCards is 3, and scores the best 5 of 8', () => {
+    const t = new Table(13, { holeCards: 3, swapSeconds: 0 });
+    t.act('P0', { type: 'start' });
+    const cards = [...Object.values(t.s.hole).flat(), ...t.s.fullBoard];
+    expect(Object.values(t.s.hole).every((h) => h.length === 3)).toBe(true);
+    expect(new Set(cards).size).toBe(44);
+    expect(privateView(t.s, 'P1').hole).toHaveLength(3);
+    for (let r = 0; r < 4; r++) t.playQuietRound();
+    expect(t.s.phase).toBe('SHOWDOWN');
+    const e = t.s.showdown!.entries.P1!;
+    expect(e.hole).toHaveLength(3);
+    expect(e.score).toBe(evaluateBest([...t.s.hole.P1!, ...t.s.fullBoard]));
+  });
+});
+
+describe('skip round', () => {
+  // Rounds played and board size in each, by the skipped round.
+  const cases: [skip: number, rounds: number[], boards: number[]][] = [
+    [1, [2, 3, 4], [3, 4, 5]],
+    [2, [1, 3, 4], [0, 4, 5]],
+    [3, [1, 2, 4], [0, 3, 5]],
+  ];
+  it.each(cases)('skipRound %i plays rounds %j', (skip, rounds, boards) => {
+    const t = new Table(3, { skipRound: skip });
+    t.act('P0', { type: 'start' });
+    rounds.forEach((r, i) => {
+      expect(t.s.round).toBe(r);
+      expect(t.s.board).toHaveLength(boards[i]!);
+      t.playQuietRound();
+    });
+    expect(t.s.phase).toBe('SHOWDOWN');
+    expect(t.s.history.P0).toHaveLength(3);
   });
 });
 

@@ -40,6 +40,20 @@ export interface Settings {
   notifyStyle: NotifyStyle;
   sound: boolean;
   vibrate: boolean;
+  /** Hole cards per player: 2 or 3. Strength is the best 5 of all hole and board cards. */
+  holeCards: number;
+  /** Round (1..3) that every hand skips; its cards come with the next round. 0 skips nothing. */
+  skipRound: number;
+}
+
+/** Returns the rounds (1..4) that a hand plays with the given settings, in order. */
+export function playedRounds(settings: { skipRound: number }): number[] {
+  return [1, 2, 3, 4].filter((r) => r !== settings.skipRound);
+}
+
+/** Returns the number of board cards that show in a round: 0, 3, 4 or 5. */
+export function boardSize(round: number): number {
+  return round <= 1 ? 0 : round + 1;
 }
 
 const NOTIFY_STYLES: readonly NotifyStyle[] = ['fullscreen', 'banner', 'toast', 'ticker'];
@@ -80,7 +94,7 @@ export interface SwapRequest {
 
 /** Hand result of 1 player at showdown. */
 export interface ShowdownEntry {
-  hole: [Card, Card];
+  hole: Card[];
   score: number;
   category: string;
 }
@@ -105,7 +119,7 @@ export interface GameState {
   deadline: number | null;
   /** End of the intro pause of the current timed phase. Player actions wait until then. */
   startsAt: number | null;
-  hole: Record<PlayerId, [Card, Card]>;
+  hole: Record<PlayerId, Card[]>;
   fullBoard: Card[];
   board: Card[];
   budgets: Record<PlayerId, number>;
@@ -166,7 +180,7 @@ export function cleanName(raw: unknown): string {
 export function createGame(hostId: PlayerId, hostName: string): GameState {
   return {
     phase: 'LOBBY',
-    settings: { persistenceMode: 'budget', swapSeconds: 60, introSeconds: 3, notifyStyle: 'banner', sound: false, vibrate: false },
+    settings: { persistenceMode: 'budget', swapSeconds: 60, introSeconds: 3, notifyStyle: 'banner', sound: false, vibrate: false, holeCards: 2, skipRound: 0 },
     hostId,
     seats: [{ id: hostId, name: cleanName(hostName), connected: true }],
     handNo: 0,
@@ -293,6 +307,8 @@ function updateSettings(s: GameState, patch: Partial<Settings>): boolean {
   if (patch.notifyStyle && NOTIFY_STYLES.includes(patch.notifyStyle)) s.settings.notifyStyle = patch.notifyStyle;
   if (typeof patch.sound === 'boolean') s.settings.sound = patch.sound;
   if (typeof patch.vibrate === 'boolean') s.settings.vibrate = patch.vibrate;
+  if (patch.holeCards === 2 || patch.holeCards === 3) s.settings.holeCards = patch.holeCards;
+  if (patch.skipRound === 0 || patch.skipRound === 1 || patch.skipRound === 2 || patch.skipRound === 3) s.settings.skipRound = patch.skipRound;
   return true;
 }
 
@@ -307,14 +323,15 @@ function deal(s: GameState, now: number, rng: Rng): void {
   const deck = shuffle(newDeck(), rng);
   s.handNo += 1;
   s.hole = {};
-  for (const seat of s.seats) s.hole[seat.id] = [deck.pop()!, deck.pop()!];
+  // 13 players x 3 hole cards + 5 board cards = 44, so the deck is always large enough.
+  for (const seat of s.seats) s.hole[seat.id] = deck.splice(-s.settings.holeCards);
   s.fullBoard = deck.splice(-5);
-  s.board = [];
   s.budgets = Object.fromEntries(s.seats.map((x) => [x.id, RULES.budgetPerHand]));
   s.ranks = {};
   s.history = {};
   s.showdown = null;
-  s.round = 1;
+  s.round = playedRounds(s.settings)[0]!;
+  s.board = s.fullBoard.slice(0, boardSize(s.round));
   startPick(s, now);
 }
 
@@ -506,9 +523,10 @@ function checkSwapEnd(s: GameState, now: number): void {
 function advanceRound(s: GameState, now: number): void {
   s.swap = null;
   for (const seat of s.seats) (s.history[seat.id] ??= []).push(s.ranks[seat.id]!);
-  if (s.round < 4) {
-    s.round += 1;
-    s.board = s.fullBoard.slice(0, s.round + 1);
+  const next = playedRounds(s.settings).find((r) => r > s.round);
+  if (next != null) {
+    s.round = next;
+    s.board = s.fullBoard.slice(0, boardSize(s.round));
     startPick(s, now);
     return;
   }
@@ -606,7 +624,7 @@ export interface PublicState {
 
 /** State that only 1 player can see. */
 export interface PrivateState {
-  hole: [Card, Card] | null;
+  hole: Card[] | null;
   /** Remaining budget as a ratio 0..1, or null in free mode. The UI shows it as a bar only. */
   budget: number | null;
 }
@@ -649,5 +667,5 @@ export function privateView(s: GameState, id: PlayerId): PrivateState {
   const hole = s.phase === 'LOBBY' ? null : (s.hole[id] ?? null);
   const budget =
     s.settings.persistenceMode === 'budget' && s.budgets[id] != null ? s.budgets[id]! / RULES.budgetPerHand : null;
-  return { hole: hole && [hole[0], hole[1]], budget };
+  return { hole: hole && hole.slice(), budget };
 }

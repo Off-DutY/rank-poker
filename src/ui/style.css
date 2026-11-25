@@ -294,7 +294,7 @@ button.chip { border-color: var(--gold); }
 /* Flop and turn: big center reveal */
 .burst { position: fixed; inset: 0; z-index: 30; pointer-events: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; background: radial-gradient(circle, rgba(70, 52, 12, 0.97), rgba(5, 18, 13, 0.98) 65%); animation: burstLife 1.9s ease-in-out both; }
 .burst-title { font-size: 44px; font-weight: 900; color: var(--gold); letter-spacing: 6px; text-shadow: 0 0 24px rgba(233, 196, 106, 0.8); animation: burstTitle 0.6s cubic-bezier(.2,.8,.2,1) both; }
-.burst-cards { display: flex; gap: 12px; perspective: 800px; }
+.burst-cards { display: flex; flex-wrap: wrap; justify-content: center; max-width: 100vw; padding: 0 12px; gap: 12px; perspective: 800px; }
 .burst-slot { animation: burstFlip 0.7s cubic-bezier(.2,.8,.2,1) both; position: relative; overflow: hidden; border-radius: 12px; }
 .burst-slot .card { width: 84px; height: 118px; font-size: 34px; border-radius: 12px; box-shadow: 0 0 30px rgba(233, 196, 106, 0.7); animation: none; }
 .burst-slot .card small { font-size: 30px; }
@@ -354,3 +354,18 @@ button.chip { border-color: var(--gold); }
 /* Center the name and the ranks on the same line (baseline alignment drifted with the larger rank digits). */
 .rc-row { line-height: 1.2; }
 .rc-ranks, .rc-new { align-items: center; }
+
+/* Hand category reference: a side tab that opens a panel. Above the table, below announcements. */
+.handref { position: fixed; top: 50%; right: 0; z-index: 15; display: flex; align-items: center; transform: translate(calc(100% - 34px), -50%); transition: transform 0.3s cubic-bezier(.2,.8,.2,1); }
+.handref.open { transform: translate(0, -50%); }
+.handref-tab { writing-mode: vertical-rl; padding: 12px 6px; width: 34px; border-radius: 10px 0 0 10px; border-right: none; background: var(--gold); color: #1d1d1d; font-weight: 700; letter-spacing: 2px; }
+.handref-body { width: min(320px, calc(100vw - 50px)); max-height: 80dvh; overflow-y: auto; padding: 10px 12px; background: #0b2c21; border: 1px solid var(--line); border-right: none; box-shadow: -6px 0 24px rgba(0, 0, 0, 0.5); }
+.handref-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.handref-close { padding: 2px 8px; }
+.handref ol { list-style: none; margin: 0; padding: 0; }
+.handref li { padding: 6px 0; border-bottom: 1px solid var(--line); }
+.handref .hr-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.handref li small { color: var(--muted); font-size: 12px; }
+.handref .hr-cards { display: flex; gap: 2px; }
+.handref .card { width: 24px; height: 34px; font-size: 11px; margin: 0; }
+.handref .card small { font-size: 10px; color: inherit; }

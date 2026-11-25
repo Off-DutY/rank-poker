@@ -42,7 +42,7 @@ export function createAnnouncer(
   ticker: HTMLElement,
   hostNow: () => number,
 ): {
-  push(items: Announcement[], until: number | null, opts: NotifyOptions, preview?: boolean, extraHtml?: string, delayMs?: number): void;
+  push(items: Announcement[], until: number | null, opts: NotifyOptions, preview?: boolean, extraHtml?: string): void;
 } {
   const queue: Page[] = [];
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -88,7 +88,7 @@ export function createAnnouncer(
   };
 
   return {
-    push(items, until, opts, preview = false, extraHtml = '', delayMs = 0) {
+    push(items, until, opts, preview = false, extraHtml = '') {
       const latest = items.at(-1);
       if (!latest) return;
       if (!preview) {
@@ -104,8 +104,7 @@ export function createAnnouncer(
         queue.length = 0;
         if (timer) clearTimeout(timer);
         hide();
-        // Wait for the board reveal to end, so the full intro bar shows after it.
-        timer = setTimeout(() => show(page), delayMs);
+        show(page);
         return;
       }
       queue.push(page);

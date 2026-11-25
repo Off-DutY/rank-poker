@@ -4,7 +4,7 @@ import type { Session } from '../net/session';
 import { boardBurst, captureChips, createAnnouncer, dealCards, flashChips, playChipMoves, pop } from './effects';
 import { type Announcement, diffEvents } from './events';
 import { unlockAudio } from './sound';
-import { type Ctx, cards, header, historyTable, lobby, rankChangeHtml, matchEnd, persistPrompt, persistWindow, pickLadder, showdownView, swapView } from './render';
+import { type Ctx, cards, handRankPanel, header, historyTable, lobby, rankChangeHtml, matchEnd, persistPrompt, persistWindow, pickLadder, showdownView, swapView } from './render';
 import { roomUrl } from './room';
 
 const REJECT_TEXT: Record<string, string> = {
@@ -16,6 +16,14 @@ const REJECT_TEXT: Record<string, string> = {
 const NO_HOST_HINT_MS = 15_000;
 /** Titles of the big board reveal, by round. */
 const BOARD_TITLES: Record<number, string> = { 2: '翻牌！', 3: '轉牌！', 4: '河牌！' };
+
+/** Returns the big reveal title of a round. After a skipped round, it names both rounds, for example "翻牌＋轉牌！". */
+function boardTitle(pub: PublicState): string | null {
+  const title = BOARD_TITLES[pub.round];
+  if (!title) return null;
+  const skipped = pub.settings.skipRound === pub.round - 1 ? BOARD_TITLES[pub.round - 1] : undefined;
+  return skipped ? `${skipped.slice(0, -1)}＋${title}` : title;
+}
 const REFRESH_MS = 100;
 
 /**
@@ -24,7 +32,9 @@ const REFRESH_MS = 100;
  */
 export function mountGame(root: HTMLElement, session: Session, code: string): void {
   root.innerHTML =
-    '<header id="hdr"></header><div id="ticker"></div><main id="main"></main><div id="announce" aria-live="polite"></div><div id="overlay"></div>';
+    '<header id="hdr"></header><div id="ticker"></div><main id="main"></main><div id="announce" aria-live="polite"></div><div id="overlay"></div><aside id="handref" class="handref"></aside>';
+  const handref = root.querySelector<HTMLElement>('#handref')!;
+  handref.innerHTML = handRankPanel();
   const hdr = root.querySelector<HTMLElement>('#hdr')!;
   const announcer = createAnnouncer(root.querySelector<HTMLElement>('#announce')!, root.querySelector<HTMLElement>('#ticker')!, () =>
     session.hostNow(),
@@ -33,14 +43,19 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
   const fx = {
     phase: '',
     hand: 0,
+    /** The hand whose own hole cards already played the big reveal. */
+    holeHand: 0,
     board: 0,
     locked: new Set<string>(),
     picks: {} as Record<string, number | null>,
     ranks: {} as Record<string, number>,
   };
   let lastPub: PublicState | null = null;
-  /** Board cards held back until `at` (host time), so the rank results show before the reveal. */
-  const reveal = { at: 0, shown: 0, hand: 0, round: 0 };
+  /**
+   * New cards held back until `at` (host time), so the announcement shows before the reveal.
+   * `shown` is the number of board cards to keep; `hole` hides the own hole cards (new hand).
+   */
+  const reveal = { at: 0, shown: 0, hand: 0, round: 0, hole: false };
   const main = root.querySelector<HTMLElement>('#main')!;
   const overlay = root.querySelector<HTMLElement>('#overlay')!;
   const url = roomUrl(code);
@@ -81,7 +96,8 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
     // New board cards stay hidden until their reveal time: first the rank results, then the big reveal.
     const hold = reveal.at > now0 && reveal.hand === v.pub.handNo && reveal.round === v.pub.round;
     const shown: PublicState = hold ? { ...v.pub, board: v.pub.board.slice(0, reveal.shown) } : v.pub;
-    const ctx: Ctx = { me: session.me, isHost: session.isHost, pub: shown, priv: v.priv };
+    const priv = hold && reveal.hole ? { ...v.priv, hole: null } : v.priv;
+    const ctx: Ctx = { me: session.me, isHost: session.isHost, pub: shown, priv };
     set(hdr, header(ctx, code));
     const now = session.hostNow();
     // During the intro pause the host ignores actions, so the controls look paused too.
@@ -123,17 +139,21 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
     }
     playChipMoves(main, before);
     const atTable = pub.phase === 'PICK' || pub.phase === 'PERSIST' || pub.phase === 'SWAP';
-    if (atTable && pub.handNo !== fx.hand) {
-      // A new hand: the own hole cards get the big reveal, then land in the hand area.
-      const hole = [...main.querySelectorAll('.hole .card')];
-      if (hole.length && !hole[0]!.classList.contains('back')) boardBurst(root, '你的手牌', hole.map((c) => c.outerHTML));
+    const hole = [...main.querySelectorAll('.hole .card')];
+    if (atTable && pub.handNo !== fx.hand) dealCards(main.querySelectorAll('.board .card'), 300);
+    if (atTable && pub.handNo !== fx.holeHand && hole.length && !hole[0]!.classList.contains('back')) {
+      // The own hole cards show face up for the first time in this hand: big reveal, then they land in the hand area.
+      // With round 1 skipped, the flop comes with them in the same reveal.
+      const board = [...main.querySelectorAll('.board .card')].slice(0, pub.board.length);
+      const title = board.length ? '你的手牌＋翻牌' : '你的手牌';
+      boardBurst(root, title, [...hole, ...board].map((c) => c.outerHTML));
       dealCards(hole, 1_500);
-      dealCards(main.querySelectorAll('.board .card'), 300);
+      fx.holeHand = pub.handNo;
     } else if (atTable && pub.board.length > fx.board) {
       // Only the newly revealed cards; the slots after them are still card backs.
       const fresh = [...main.querySelectorAll('.board .card')].slice(fx.board, pub.board.length);
       // The flop and the turn get a big center effect; the cards land on the table after it.
-      const title = BOARD_TITLES[pub.round] ?? null;
+      const title = boardTitle(pub);
       if (title) boardBurst(root, title, fresh.map((c) => c.outerHTML));
       dealCards(fresh, title ? 1_500 : 0);
     }
@@ -179,6 +199,11 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
     if (!el || (el as HTMLButtonElement).disabled) return;
     const d = el.dataset;
     switch (d.act) {
+      case 'handref': {
+        const open = handref.classList.toggle('open');
+        handref.querySelector('.handref-tab')!.setAttribute('aria-expanded', String(open));
+        break;
+      }
       case 'copy':
         void navigator.clipboard?.writeText(url).then(
           () => (el.textContent = '已複製'),
@@ -230,7 +255,7 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
   root.addEventListener('change', (e) => {
     const el = e.target as HTMLSelectElement;
     const act = el.dataset.act;
-    if (act === 'swapSeconds' || act === 'introSeconds') session.act({ type: 'settings', settings: { [act]: Number(el.value) } });
+    if (act === 'swapSeconds' || act === 'introSeconds' || act === 'holeCards' || act === 'skipRound') session.act({ type: 'settings', settings: { [act]: Number(el.value) } });
     if (act === 'notifyStyle') session.act({ type: 'settings', settings: { notifyStyle: el.value as NotifyStyle } });
   });
 
@@ -246,7 +271,7 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
     if (!pub) return;
     const sample: Announcement[] = [
       { kind: 'conflict', title: '衝突結果', lines: ['玩家B：選 2 → 移到 1'] },
-      { kind: 'info', title: '翻牌：發出 3 張公牌', lines: ['重新選擇名次'] },
+      { kind: 'info', title: '翻牌：發出 3 張公牌', lines: ['重新選擇順位'] },
     ];
     const intro = pub.settings.introSeconds;
     announcer.push(sample, intro > 0 ? session.hostNow() + intro * 1000 : null, notifyOptions(pub), true);
@@ -260,19 +285,19 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
       const until = pub.startsAt != null && pub.startsAt !== lastPub?.startsAt && pub.startsAt > session.hostNow() ? pub.startsAt : null;
       // New board cards play the big reveal first; the announcement waits until it ends.
       const newCards = until != null && lastPub != null && pub.board.length > lastPub.board.length && BOARD_TITLES[pub.round] != null;
+      // A new hand deals the hole cards with the same order: announcement first, then the reveal.
+      const newHand = until != null && pub.phase === 'PICK' && pub.round === 1 && pub.handNo !== lastPub?.handNo;
       const extra = until != null ? rankChangeHtml(pub, session.me) : '';
-      if (newCards) {
-        // Order: rank results (announcement) first, then the big reveal in the last part of the intro.
+      if (newCards || newHand) {
+        // Order: announcement (with rank results) first, then the big reveal in the last part of the intro.
         reveal.at = pub.startsAt! - RULES.boardRevealMs;
-        reveal.shown = lastPub!.board.length;
+        reveal.shown = newHand ? 0 : lastPub!.board.length;
+        reveal.hole = newHand;
         reveal.hand = pub.handNo;
         reveal.round = pub.round;
       }
-      const announceUntil = newCards ? Math.max(session.hostNow(), reveal.at) : until;
-      // A new hand plays the hole card reveal first; its announcement waits until the reveal ends.
-      const newHand = until != null && pub.phase === 'PICK' && pub.round === 1 && pub.handNo !== lastPub?.handNo;
-      const delay = newHand ? RULES.boardRevealMs : 0;
-      if (items.length) announcer.push(items, announceUntil, notifyOptions(pub), false, extra, delay);
+      const announceUntil = newCards || newHand ? Math.max(session.hostNow(), reveal.at) : until;
+      if (items.length) announcer.push(items, announceUntil, notifyOptions(pub), false, extra);
       lastPub = pub;
     }
     render();
