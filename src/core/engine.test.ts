@@ -332,12 +332,18 @@ describe('swap phase', () => {
     t.pickAll({ P0: 1, P1: 2, P2: 3, P3: 4 });
   });
 
-  it('swaps ranks when the target accepts', () => {
+  it('moves the requester to the target rank and shifts the players between when the target accepts', () => {
     t.act('P0', { type: 'swapRequest', targetId: 'P3' });
     expect(t.act('P0', { type: 'swapRespond', requestId: req().id, accept: true })).toBe(false);
     t.act('P3', { type: 'swapRespond', requestId: req().id, accept: true });
     expect(req().status).toBe('accepted');
-    expect(t.s.ranks).toMatchObject({ P0: 4, P3: 1 });
+    expect(t.s.ranks).toEqual({ P0: 4, P1: 1, P2: 2, P3: 3 });
+  });
+
+  it('shifts the players between down when the requester moves up', () => {
+    t.act('P3', { type: 'swapRequest', targetId: 'P1' });
+    t.act('P1', { type: 'swapRespond', requestId: req().id, accept: true });
+    expect(t.s.ranks).toEqual({ P0: 1, P1: 3, P2: 4, P3: 2 });
   });
 
   it('allows only 1 active request per player and 1 request per pair', () => {
@@ -359,7 +365,7 @@ describe('swap phase', () => {
     t.act('P0', { type: 'persist', value: 0.6 });
     t.act('P3', { type: 'persist', value: 0.4 });
     expect(req().status).toBe('won');
-    expect(t.s.ranks).toMatchObject({ P0: 4, P3: 1 });
+    expect(t.s.ranks).toEqual({ P0: 4, P1: 1, P2: 2, P3: 3 });
   });
 
   it('keeps ranks when the defender bids the same and earlier', () => {
@@ -561,7 +567,7 @@ describe('rank history', () => {
     t.act('P0', { type: 'swapRequest', targetId: 'P2' });
     t.act('P2', { type: 'swapRespond', requestId: 1, accept: true });
     t.allDone();
-    expect(t.s.history).toEqual({ P0: [3], P1: [2], P2: [1] });
+    expect(t.s.history).toEqual({ P0: [3], P1: [1], P2: [2] });
     expect(publicView(t.s).history).toEqual(t.s.history);
     for (let r = 2; r <= 4; r++) t.playQuietRound();
     expect(t.s.phase).toBe('SHOWDOWN');

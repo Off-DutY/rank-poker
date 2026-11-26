@@ -78,8 +78,9 @@ export function botAction(pub: PublicState, me: PlayerId, estimate: number): Pla
     if (challenge) return { type: 'persist', value: (closeness(challenge.to === me ? myRank : pub.ranks[challenge.to]!, estimate)) };
     const asked = reqs.find((r) => r.status === 'pending' && r.to === me);
     if (asked) {
-      // Accept when the other rank is nearer to the estimate than the current one.
-      const accept = Math.abs(pub.ranks[asked.from]! - estimate) < Math.abs(myRank - estimate);
+      // Accepting shifts this bot 1 rank toward the requester's old rank. Accept when that is nearer to the estimate.
+      const next = myRank + Math.sign(pub.ranks[asked.from]! - myRank);
+      const accept = Math.abs(next - estimate) < Math.abs(myRank - estimate);
       return { type: 'swapRespond', requestId: asked.id, accept };
     }
     const busy = (id: PlayerId) => reqs.some((r) => (r.status === 'pending' || r.status === 'deciding' || r.status === 'challenge') && (r.from === id || r.to === id));

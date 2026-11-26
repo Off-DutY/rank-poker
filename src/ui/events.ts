@@ -70,11 +70,17 @@ export function diffEvents(prev: PublicState | null, next: PublicState, me: Play
       if (before?.status === r.status) continue;
       const a = name(r.from);
       const b = name(r.to);
-      if (!before) out.push({ kind: 'swap', title: `${a} 向 ${b} 提出交換`, lines: [`${prev.ranks[r.from]} ⇄ ${prev.ranks[r.to]}`] });
-      else if (r.status === 'accepted') out.push({ kind: 'swap', title: `${a} ⇄ ${b} 交換順位`, lines: [`${a} → ${next.ranks[r.from]}`, `${b} → ${next.ranks[r.to]}`] });
+      // Players who shifted because the requester moved, in new rank order.
+      const shifted = () =>
+        next.seats
+          .filter((s) => s.id !== r.from && prev.ranks[s.id] != null && prev.ranks[s.id] !== next.ranks[s.id])
+          .sort((x, y) => next.ranks[x.id]! - next.ranks[y.id]!)
+          .map((s) => `${name(s.id)} 移到 ${next.ranks[s.id]}`);
+      if (!before) out.push({ kind: 'swap', title: `${a} 向 ${b} 提出交換`, lines: [`${prev.ranks[r.from]} → ${prev.ranks[r.to]}`] });
+      else if (r.status === 'accepted') out.push({ kind: 'swap', title: `${b} 同意交換`, lines: [`${a} 移到 ${next.ranks[r.from]}`, ...shifted()] });
       else if (r.status === 'deciding' || r.status === 'declined') out.push({ kind: 'swap', title: `${b} 拒絕交換`, lines: [] });
       else if (r.status === 'challenge') out.push({ kind: 'conflict', title: `${a} 向 ${b} 發起挑戰！`, lines: [`爭奪順位 ${next.ranks[r.to]}`] });
-      else if (r.status === 'won') out.push({ kind: 'conflict', title: `${a} 挑戰成功`, lines: [`${a} 搶下順位 ${next.ranks[r.from]}`, `${b} 移到 ${next.ranks[r.to]}`] });
+      else if (r.status === 'won') out.push({ kind: 'conflict', title: `${a} 挑戰成功`, lines: [`${a} 搶下順位 ${next.ranks[r.from]}`, ...shifted()] });
       else if (r.status === 'lost') out.push({ kind: 'conflict', title: `${b} 守住順位 ${next.ranks[r.to]}`, lines: [`${a} 挑戰失敗`] });
     }
   }

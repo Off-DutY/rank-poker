@@ -223,7 +223,7 @@ function duel(ctx: Ctx, a: PlayerId, b: PlayerId, focus: number): string {
       <div class="big-rank">${r}${rankHint(r, n)}</div>
       <div class="trail">歷程 ${trail(ctx.pub, id)}</div></div>`;
   };
-  return `<div class="duel">${side(a)}<div class="vs">⇄</div>${side(b)}</div>`;
+  return `<div class="duel">${side(a)}<div class="vs">→</div>${side(b)}</div>`;
 }
 
 /** Renders the rank ladder for PICK and PERSIST: who picked which rank. */
@@ -268,7 +268,7 @@ const STATUS_TEXT: Record<string, string> = {
   challenge: '挑戰中',
   accepted: '同意交換',
   declined: '拒絕交換',
-  won: '挑戰成功，已交換',
+  won: '挑戰成功，已移動',
   lost: '挑戰失敗',
   expired: '時間到，取消',
 };
@@ -304,7 +304,7 @@ export function swapView(ctx: Ctx, now: number): string {
     .join('');
   const done = swap.done[me];
   return `${countdown(pub.deadline, pub.settings.swapSeconds * 1000)}
-    <p class="hint">點選其他玩家，提出交換順位。</p>
+    <p class="hint">點選其他玩家，請求移到對方的順位。中間的玩家依序遞補。</p>
     ${mine.join('')}
     <div class="ladder">${rows.join('')}</div>
     <button class="${done ? '' : 'primary '}big" data-act="done" data-done="${done ? 0 : 1}">${done ? '取消完成' : '完成交換'}</button>
@@ -316,7 +316,7 @@ function myRequest(ctx: Ctx, r: PublicSwapRequest): string {
   const other = nameOf(pub, r.from === me ? r.to : r.from);
   let body = '';
   if (r.status === 'pending' && r.to === me) {
-    body = `<b>${other}</b> 想和你交換順位${duel(ctx, r.from, r.to, pub.ranks[r.to]!)}
+    body = `<b>${other}</b> 想移到你的順位，你和中間的玩家各移 1 位遞補${duel(ctx, r.from, r.to, pub.ranks[r.to]!)}
       <div class="row"><button class="primary" data-act="swapResp" data-req="${r.id}" data-accept="1">同意</button>
       <button data-act="swapResp" data-req="${r.id}" data-accept="0">拒絕</button></div>`;
   } else if (r.status === 'pending') {

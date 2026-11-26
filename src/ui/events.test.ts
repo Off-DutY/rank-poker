@@ -84,12 +84,12 @@ describe('diffEvents', () => {
     r.do('P1', { type: 'swapRespond', requestId: 2, accept: true });
     for (const id of ['P0', 'P1', 'P2']) r.do(id, { type: 'swapDone', done: true });
     expect(r.log).toEqual([
-      '你 向 C 提出交換 / 2 ⇄ 3',
+      '你 向 C 提出交換 / 2 → 3',
       'C 拒絕交換',
       '你 向 C 發起挑戰！ / 爭奪順位 3',
       '你 挑戰成功 / 你 搶下順位 3 / C 移到 2',
-      'A 向 你 提出交換 / 1 ⇄ 3',
-      'A ⇄ 你 交換順位 / A → 3 / 你 → 1',
+      'A 向 你 提出交換 / 1 → 3',
+      '你 同意交換 / A 移到 3 / C 移到 1 / 你 移到 2',
       '交換階段結束',
       '翻牌：發出 3 張公牌 / 重新選擇順位',
     ]);

@@ -525,10 +525,19 @@ function finishChallenge(s: GameState, r: SwapRequest, now: number): void {
   r.deadline = null;
 }
 
+/**
+ * Moves the requester to the target rank. Players between the 2 ranks, the target included,
+ * shift 1 rank toward the requester's old rank. Example: B at 2 takes 5, so 3..5 become 2..4.
+ */
 function exchange(s: GameState, r: SwapRequest): void {
-  const a = s.ranks[r.from]!;
-  s.ranks[r.from] = s.ranks[r.to]!;
-  s.ranks[r.to] = a;
+  const from = s.ranks[r.from]!;
+  const to = s.ranks[r.to]!;
+  const step = from < to ? -1 : 1;
+  for (const id of Object.keys(s.ranks)) {
+    const x = s.ranks[id]!;
+    if (id !== r.from && x >= Math.min(from, to) && x <= Math.max(from, to)) s.ranks[id] = x + step;
+  }
+  s.ranks[r.from] = to;
 }
 
 function checkSwapEnd(s: GameState, now: number): void {
