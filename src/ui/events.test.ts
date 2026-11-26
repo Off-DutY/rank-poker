@@ -117,4 +117,14 @@ describe('diffEvents', () => {
     for (let i = 0; i < 3; i++) r.pickAll({ P0: 1, P1: 2, P2: 3 });
     expect(r.log.at(-1)).toBe('攤牌！ / 公開所有手牌，從順位 1 開始比對');
   });
+
+  it('announces the final challenge before the showdown', () => {
+    const r = new Run({ swapSeconds: 0, finalGuess: true });
+    r.do('P0', { type: 'start' });
+    for (let i = 0; i < 4; i++) r.pickAll({ P0: 1, P1: 2, P2: 3 });
+    expect(r.log.at(-1)).toBe('最終挑戰！ / 猜 C（順位 3）的牌型 / 投票多數決，猜錯算失敗');
+    r.do('P0', { type: 'guessVote', category: 1 });
+    r.do('P1', { type: 'guessVote', category: 1 });
+    expect(r.log.at(-1)).toBe('攤牌！ / 公開所有手牌，從順位 1 開始比對');
+  });
 });

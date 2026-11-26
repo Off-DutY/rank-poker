@@ -1,7 +1,7 @@
 import type { JoinRejection, PlayerAction, PlayerId, PrivateState, PublicState } from '../core/engine';
 
 /** Protocol version. Players with a different version cannot join (spec 8). */
-export const PROTOCOL_VERSION = 8;
+export const PROTOCOL_VERSION = 9;
 
 /** Message from a player to the host. */
 export type ClientMsg =
@@ -51,6 +51,8 @@ export function parseClientMsg(raw: unknown): ClientMsg | 'version' | null {
       if (typeof s.notifyStyle === 'string') settings.notifyStyle = s.notifyStyle;
       if (isNum(s.holeCards)) settings.holeCards = s.holeCards;
       if (isNum(s.skipRound)) settings.skipRound = s.skipRound;
+      if (typeof s.lockEnd === 'string') settings.lockEnd = s.lockEnd;
+      if (typeof s.finalGuess === 'boolean') settings.finalGuess = s.finalGuess;
       return { v, type: 'settings', settings };
     }
     case 'pick':
@@ -67,6 +69,8 @@ export function parseClientMsg(raw: unknown): ClientMsg | 'version' | null {
       return isNum(raw.requestId) ? { v, type: 'swapChallenge', requestId: raw.requestId } : null;
     case 'swapDone':
       return typeof raw.done === 'boolean' ? { v, type: 'swapDone', done: raw.done } : null;
+    case 'guessVote':
+      return isNum(raw.category) ? { v, type: 'guessVote', category: raw.category } : null;
     default:
       return null;
   }

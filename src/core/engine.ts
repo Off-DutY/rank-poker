@@ -15,6 +15,8 @@ export const RULES = {
   /** Actions that arrive up to this long after a deadline still count (spec 9). */
   graceMs: 300,
   maxSwapSeconds: 180,
+  /** Length of the final challenge vote. */
+  guessMs: 30_000,
   maxIntroSeconds: 5,
   /** Extra intro time when cards are dealt or revealed (every round), for the big reveal effect. Only when the intro is on. */
   boardRevealMs: 2_000,
@@ -22,6 +24,22 @@ export const RULES = {
   /** Minimum time between 2 counted clicks on the own current rank. The host drops faster clicks. */
   hypeMs: 150,
 } as const;
+
+/** Which end of the ranks is locked in the swap phase: none, the smallest ranks, or the largest ranks. */
+export type LockEnd = 'none' | 'low' | 'high';
+
+const LOCK_ENDS: readonly LockEnd[] = ['none', 'low', 'high'];
+
+/**
+ * Returns the locked ranks for n players: ceil(n / 4) ranks at the chosen end.
+ * Holders of these ranks cannot send or receive swap requests.
+ */
+export function lockedRanks(n: number, lockEnd: LockEnd): number[] {
+  const k = Math.ceil(n / 4);
+  if (lockEnd === 'low') return Array.from({ length: k }, (_, i) => i + 1);
+  if (lockEnd === 'high') return Array.from({ length: k }, (_, i) => n - k + 1 + i);
+  return [];
+}
 
 /** How players see announcements. */
 export type NotifyStyle = 'fullscreen' | 'banner' | 'toast' | 'ticker';
@@ -39,6 +57,13 @@ export interface Settings {
   holeCards: number;
   /** Round (1..3) that every hand skips; its cards come with the next round. 0 skips nothing. */
   skipRound: number;
+  /** Ranks at this end are locked in every swap phase. */
+  lockEnd: LockEnd;
+  /**
+   * True adds the final challenge before the showdown: the other players vote on the hand category
+   * of the player with the largest rank. A wrong guess fails the hand.
+   */
+  finalGuess: boolean;
 }
 
 /** Returns the rounds (1..4) that a hand plays with the given settings, in order. */
@@ -54,7 +79,7 @@ export function boardSize(round: number): number {
 const NOTIFY_STYLES: readonly NotifyStyle[] = ['fullscreen', 'banner', 'toast', 'ticker'];
 
 /** Game phase. Deal, resolve and reveal are instant and have no phase of their own. */
-export type Phase = 'LOBBY' | 'PICK' | 'PERSIST' | 'SWAP' | 'SHOWDOWN';
+export type Phase = 'LOBBY' | 'PICK' | 'PERSIST' | 'SWAP' | 'GUESS' | 'SHOWDOWN';
 
 /** A player seat. */
 export interface Seat {
@@ -103,10 +128,30 @@ export interface ShowdownEntry {
   category: string;
 }
 
+/** The final challenge vote: the other players guess the hand category (index in CATEGORY_NAMES) of `target`. */
+export interface Guess {
+  target: PlayerId;
+  votes: Record<PlayerId, number>;
+}
+
+/** Result of the final challenge. */
+export interface GuessResult extends Guess {
+  /** The category with the most votes, or null when no vote came in or the top votes tie. */
+  answer: number | null;
+  /** The real category of the target. */
+  actual: number;
+  correct: boolean;
+}
+
 /** Result of a hand. */
 export interface Showdown {
   entries: Record<PlayerId, ShowdownEntry>;
   ranks: Record<PlayerId, number>;
+  /** True when the rank order is correct. */
+  orderOk: boolean;
+  /** The final challenge result, or null when the final challenge is off. */
+  guess: GuessResult | null;
+  /** True when the order is correct and, with the final challenge on, the guess is correct. */
   success: boolean;
 }
 
@@ -133,6 +178,8 @@ export interface GameState {
   /** Players in the current conflict, with their bids. Set only in PERSIST. */
   conflict: { participants: PlayerId[]; bids: Record<PlayerId, Bid> } | null;
   swap: { requests: SwapRequest[]; done: Record<PlayerId, boolean>; nextId: number } | null;
+  /** The final challenge vote. Set only in GUESS. */
+  guess: Guess | null;
   showdown: Showdown | null;
 }
 
@@ -150,6 +197,8 @@ export type PlayerAction =
   | { type: 'swapRespond'; requestId: number; accept: boolean }
   | { type: 'swapChallenge'; requestId: number }
   | { type: 'swapDone'; done: boolean }
+  /** In GUESS, every player except the target: votes for a hand category (0..8). A new vote replaces the old one. */
+  | { type: 'guessVote'; category: number }
   /** Host only, in the showdown: deals the next hand. */
   | { type: 'next' }
   /** Host only, in the showdown: sends all players back to the lobby. */
@@ -177,6 +226,7 @@ const TIMED_ACTIONS: ReadonlySet<string> = new Set([
   'swapRespond',
   'swapChallenge',
   'swapDone',
+  'guessVote',
 ]);
 
 /** Returns a cleaned player name: no control characters, trimmed, at most 12 characters. */
@@ -190,7 +240,7 @@ export function cleanName(raw: unknown): string {
 export function createGame(hostId: PlayerId, hostName: string): GameState {
   return {
     phase: 'LOBBY',
-    settings: { challenge: true, swapSeconds: 60, introSeconds: 3, notifyStyle: 'banner', holeCards: 2, skipRound: 0 },
+    settings: { challenge: true, swapSeconds: 60, introSeconds: 3, notifyStyle: 'banner', holeCards: 2, skipRound: 0, lockEnd: 'none', finalGuess: false },
     hostId,
     seats: [{ id: hostId, name: cleanName(hostName), connected: true }],
     handNo: 0,
@@ -206,6 +256,7 @@ export function createGame(hostId: PlayerId, hostName: string): GameState {
     history: {},
     conflict: null,
     swap: null,
+    guess: null,
     showdown: null,
   };
 }
@@ -226,7 +277,7 @@ export function joinRejection(state: GameState, id: PlayerId): JoinRejection | n
  */
 export function nextDeadline(state: GameState): number | null {
   const times: number[] = [];
-  if (state.deadline != null && (state.phase === 'PICK' || state.phase === 'PERSIST' || state.phase === 'SWAP')) {
+  if (state.deadline != null && (state.phase === 'PICK' || state.phase === 'PERSIST' || state.phase === 'SWAP' || state.phase === 'GUESS')) {
     times.push(state.deadline);
   }
   for (const r of state.swap?.requests ?? []) if (r.deadline != null) times.push(r.deadline);
@@ -283,6 +334,8 @@ function apply(s: GameState, a: Action, now: number, rng: Rng): boolean {
       s.swap.done[a.id] = Boolean(a.done);
       checkSwapEnd(s, now);
       return true;
+    case 'guessVote':
+      return guessVote(s, a.id, a.category);
     case 'addBot':
       return isHost && s.phase === 'LOBBY' && addBot(s);
     case 'removeBot': {
@@ -333,6 +386,8 @@ function updateSettings(s: GameState, patch: Partial<Settings>): boolean {
   if (patch.notifyStyle && NOTIFY_STYLES.includes(patch.notifyStyle)) s.settings.notifyStyle = patch.notifyStyle;
   if (patch.holeCards === 2 || patch.holeCards === 3) s.settings.holeCards = patch.holeCards;
   if (patch.skipRound === 0 || patch.skipRound === 1 || patch.skipRound === 2 || patch.skipRound === 3) s.settings.skipRound = patch.skipRound;
+  if (patch.lockEnd && LOCK_ENDS.includes(patch.lockEnd)) s.settings.lockEnd = patch.lockEnd;
+  if (typeof patch.finalGuess === 'boolean') s.settings.finalGuess = patch.finalGuess;
   return true;
 }
 
@@ -352,6 +407,7 @@ function deal(s: GameState, now: number, rng: Rng): void {
   s.fullBoard = deck.splice(-5);
   s.ranks = {};
   s.history = {};
+  s.guess = null;
   s.showdown = null;
   s.round = playedRounds(s.settings)[0]!;
   s.board = s.fullBoard.slice(0, boardSize(s.round));
@@ -471,6 +527,8 @@ function swapRequest(s: GameState, id: PlayerId, targetId: PlayerId, now: number
   if (s.phase !== 'SWAP' || !s.swap || now >= s.deadline!) return false;
   if (id === targetId || !s.seats.some((x) => x.id === targetId)) return false;
   if (isBusy(s, id) || isBusy(s, targetId)) return false;
+  const locked = lockedRanks(s.seats.length, s.settings.lockEnd);
+  if (locked.includes(s.ranks[id]!) || locked.includes(s.ranks[targetId]!)) return false;
   const samePair = (r: SwapRequest) => (r.from === id && r.to === targetId) || (r.from === targetId && r.to === id);
   if (s.swap.requests.some(samePair)) return false;
   s.swap.requests.push({ id: s.swap.nextId++, from: id, to: targetId, status: 'pending', deadline: now + RULES.respondMs, bids: {} });
@@ -567,7 +625,35 @@ function advanceRound(s: GameState, now: number): void {
     startPick(s, now);
     return;
   }
-  showdown(s);
+  if (s.settings.finalGuess) startGuess(s, now);
+  else showdown(s);
+}
+
+/** Starts the final challenge vote on the hand category of the player with the largest rank. */
+function startGuess(s: GameState, now: number): void {
+  const n = s.seats.length;
+  s.phase = 'GUESS';
+  s.guess = { target: s.seats.find((x) => s.ranks[x.id] === n)!.id, votes: {} };
+  s.deadline = startTimer(s, now) + RULES.guessMs;
+}
+
+function guessVote(s: GameState, id: PlayerId, category: number): boolean {
+  const g = s.guess;
+  if (s.phase !== 'GUESS' || !g || id === g.target) return false;
+  if (!Number.isInteger(category) || category < 0 || category >= CATEGORY_NAMES.length) return false;
+  g.votes[id] = category;
+  const voters = s.seats.filter((x) => x.connected && x.id !== g.target);
+  if (voters.every((x) => g.votes[x.id] != null)) showdown(s);
+  return true;
+}
+
+/** Returns the category with the most votes, or null when there is no vote or the top votes tie. */
+function tally(votes: Record<PlayerId, number>): number | null {
+  const count = new Map<number, number>();
+  for (const c of Object.values(votes)) count.set(c, (count.get(c) ?? 0) + 1);
+  const sorted = [...count.entries()].sort((a, b) => b[1] - a[1]);
+  if (sorted.length === 0 || (sorted.length > 1 && sorted[0]![1] === sorted[1]![1])) return null;
+  return sorted[0]![0];
 }
 
 function showdown(s: GameState): void {
@@ -579,10 +665,18 @@ function showdown(s: GameState): void {
     entries[seat.id] = { hole, score, category: CATEGORY_NAMES[categoryOf(score)]! };
   }
   const strengths = Object.fromEntries(Object.entries(entries).map(([id, e]) => [id, e.score]));
-  const success = isCorrectOrder(s.ranks, strengths);
+  const orderOk = isCorrectOrder(s.ranks, strengths);
+  let guess: GuessResult | null = null;
+  if (s.guess) {
+    const answer = tally(s.guess.votes);
+    const actual = categoryOf(entries[s.guess.target]!.score);
+    guess = { ...s.guess, answer, actual, correct: answer === actual };
+  }
+  const success = orderOk && (guess?.correct ?? true);
   if (success) s.score.wins += 1;
   else s.score.losses += 1;
-  s.showdown = { entries, ranks: { ...s.ranks }, success };
+  s.showdown = { entries, ranks: { ...s.ranks }, orderOk, guess, success };
+  s.guess = null;
   s.phase = 'SHOWDOWN';
   s.deadline = null;
   s.startsAt = null;
@@ -614,7 +708,7 @@ function tick(s: GameState, now: number, rng: Rng): boolean {
       } else if (r.status === 'challenge') finishChallenge(s, r, now);
     }
     checkSwapEnd(s, now);
-  }
+  } else if (s.phase === 'GUESS' && expired(s.deadline)) showdown(s);
   return JSON.stringify(s) !== before;
 }
 
@@ -650,6 +744,8 @@ export interface PublicState {
   history: Record<PlayerId, number[]>;
   conflict: { participants: PlayerId[]; submitted: PlayerId[] } | null;
   swap: { requests: PublicSwapRequest[]; done: Record<PlayerId, boolean> } | null;
+  /** The final challenge vote. Votes are public, so players can agree on 1 answer. */
+  guess: Guess | null;
   showdown: Showdown | null;
 }
 
@@ -686,6 +782,7 @@ export function publicView(s: GameState): PublicState {
         submitted: Object.keys(r.bids),
       })),
     },
+    guess: s.guess && structuredClone(s.guess),
     showdown: s.showdown && structuredClone(s.showdown),
   };
 }

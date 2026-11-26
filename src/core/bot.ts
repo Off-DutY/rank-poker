@@ -1,5 +1,5 @@
 import { type Card, type Rng, newDeck } from './cards';
-import type { PlayerAction, PlayerId, PublicState } from './engine';
+import { type PlayerAction, type PlayerId, type PublicState, lockedRanks } from './engine';
 import { evaluateBest } from './evaluator';
 
 /**
@@ -84,15 +84,30 @@ export function botAction(pub: PublicState, me: PlayerId, estimate: number): Pla
       return { type: 'swapRespond', requestId: asked.id, accept };
     }
     const busy = (id: PlayerId) => reqs.some((r) => (r.status === 'pending' || r.status === 'deciding' || r.status === 'challenge') && (r.from === id || r.to === id));
+    const locked = lockedRanks(n, pub.settings.lockEnd);
     if (busy(me)) return null;
+    // A locked rank cannot move: nothing to do in this swap phase.
+    if (locked.includes(myRank)) return pub.swap.done[me] ? null : { type: 'swapDone', done: true };
     // Ask once per round for the rank nearest to the estimate, when it is at least 1 away.
     const want = Math.min(n, Math.max(1, Math.round(estimate)));
     const holder = Object.keys(pub.ranks).find((id) => pub.ranks[id] === want);
     const askedBefore = reqs.some((r) => (r.from === me && r.to === holder) || (r.from === holder && r.to === me));
-    if (holder && holder !== me && Math.abs(myRank - estimate) >= 1 && !askedBefore && !busy(holder)) {
+    if (holder && holder !== me && !locked.includes(want) && Math.abs(myRank - estimate) >= 1 && !askedBefore && !busy(holder)) {
       return { type: 'swapRequest', targetId: holder };
     }
     return pub.swap.done[me] ? null : { type: 'swapDone', done: true };
+  }
+  if (pub.phase === 'GUESS' && pub.guess) {
+    const g = pub.guess;
+    if (me === g.target || g.votes[me] != null) return null;
+    // Bots follow the humans: wait until every human voter has voted, then vote for their top category.
+    const humans = pub.seats.filter((x) => !x.bot && x.connected && x.id !== g.target);
+    if (humans.some((x) => g.votes[x.id] == null)) return null;
+    const count = new Map<number, number>();
+    for (const x of humans) count.set(g.votes[x.id]!, (count.get(g.votes[x.id]!) ?? 0) + 1);
+    const top = [...count.entries()].sort((a, b) => b[1] - a[1])[0];
+    // With no human voter, guess 2 pair (category 2), a common category for the strongest of several hands.
+    return { type: 'guessVote', category: top ? top[0] : 2 };
   }
   return null;
 }

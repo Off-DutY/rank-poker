@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { seededRng } from './cards';
-import { evaluateBest } from './evaluator';
+import { categoryOf, evaluateBest } from './evaluator';
 import {
   type Action,
   type GameState,
@@ -10,6 +10,7 @@ import {
   cleanName,
   createGame,
   joinRejection,
+  lockedRanks,
   nextDeadline,
   privateView,
   publicView,
@@ -442,6 +443,103 @@ describe('swap phase', () => {
     z.pickAll({ P0: 1, P1: 2, P2: 3 });
     expect(z.s.phase).toBe('PICK');
     expect(z.s.round).toBe(2);
+  });
+});
+
+describe('locked ranks', () => {
+  it('locks ceil(n / 4) ranks at the chosen end', () => {
+    expect(lockedRanks(3, 'low')).toEqual([1]);
+    expect(lockedRanks(4, 'high')).toEqual([4]);
+    expect(lockedRanks(5, 'low')).toEqual([1, 2]);
+    expect(lockedRanks(8, 'high')).toEqual([7, 8]);
+    expect(lockedRanks(9, 'high')).toEqual([7, 8, 9]);
+    expect(lockedRanks(8, 'none')).toEqual([]);
+  });
+
+  it('blocks swap requests from and to a locked rank', () => {
+    const t = new Table(5, { lockEnd: 'high' });
+    t.act('P0', { type: 'start' });
+    t.pickAll({ P0: 1, P1: 2, P2: 3, P3: 4, P4: 5 });
+    expect(t.act('P0', { type: 'swapRequest', targetId: 'P3' })).toBe(false);
+    expect(t.act('P4', { type: 'swapRequest', targetId: 'P0' })).toBe(false);
+    expect(t.act('P0', { type: 'swapRequest', targetId: 'P2' })).toBe(true);
+    t.act('P2', { type: 'swapRespond', requestId: 1, accept: true });
+    expect(t.s.ranks).toEqual({ P0: 3, P1: 1, P2: 2, P3: 4, P4: 5 });
+  });
+
+  it('accepts only known lock settings', () => {
+    const t = new Table(3, { lockEnd: 'low' });
+    t.act('P0', { type: 'settings', settings: { lockEnd: 'middle' as never } });
+    expect(t.s.settings.lockEnd).toBe('low');
+  });
+});
+
+describe('final challenge', () => {
+  /** Plays a hand with the final challenge on up to the vote. P2 has the largest rank. */
+  const toGuess = () => {
+    const t = new Table(3, { finalGuess: true });
+    t.act('P0', { type: 'start' });
+    for (let r = 1; r <= 4; r++) t.playQuietRound();
+    return t;
+  };
+  const actual = (t: Table) => categoryOf(evaluateBest([...t.s.hole.P2!, ...t.s.fullBoard]));
+  const ordered = (t: Table) => {
+    const score = (id: string) => evaluateBest([...t.s.hole[id]!, ...t.s.fullBoard]);
+    return score('P0') <= score('P1') && score('P1') <= score('P2');
+  };
+
+  it('starts after the last round and lets only the other players vote', () => {
+    const t = toGuess();
+    expect(t.s.phase).toBe('GUESS');
+    expect(t.s.guess!.target).toBe('P2');
+    expect(t.act('P2', { type: 'guessVote', category: 1 })).toBe(false);
+    expect(t.act('P0', { type: 'guessVote', category: 9 })).toBe(false);
+    expect(t.act('P0', { type: 'guessVote', category: 1 })).toBe(true);
+    expect(t.act('P0', { type: 'guessVote', category: 2 })).toBe(true);
+    expect(publicView(t.s).guess!.votes).toEqual({ P0: 2 });
+  });
+
+  it('goes to the showdown when all voters voted, and a correct guess keeps the order result', () => {
+    const t = toGuess();
+    const c = actual(t);
+    t.act('P0', { type: 'guessVote', category: c });
+    t.act('P1', { type: 'guessVote', category: c });
+    expect(t.s.phase).toBe('SHOWDOWN');
+    expect(t.s.guess).toBeNull();
+    expect(t.s.showdown!.guess).toMatchObject({ answer: c, actual: c, correct: true });
+    expect(t.s.showdown!.orderOk).toBe(ordered(t));
+    expect(t.s.showdown!.success).toBe(ordered(t));
+  });
+
+  it('fails the hand when the guess is wrong', () => {
+    const t = toGuess();
+    const wrong = (actual(t) + 1) % 9;
+    t.act('P0', { type: 'guessVote', category: wrong });
+    t.act('P1', { type: 'guessVote', category: wrong });
+    expect(t.s.showdown!.guess!.correct).toBe(false);
+    expect(t.s.showdown!.success).toBe(false);
+    expect(t.s.score.losses).toBe(1);
+  });
+
+  it('counts a tie or no vote as a wrong guess when time is up', () => {
+    const t = toGuess();
+    t.act('P0', { type: 'guessVote', category: actual(t) });
+    t.act('P1', { type: 'guessVote', category: (actual(t) + 1) % 9 });
+    expect(t.s.showdown!.guess!.answer).toBeNull();
+
+    const u = toGuess();
+    expect(nextDeadline(u.s)).toBe(u.s.deadline! + RULES.graceMs);
+    u.advance(RULES.guessMs + RULES.graceMs);
+    expect(u.s.phase).toBe('SHOWDOWN');
+    expect(u.s.showdown!.guess).toMatchObject({ votes: {}, answer: null, correct: false });
+  });
+
+  it('skips the vote when the final challenge is off', () => {
+    const t = new Table(3);
+    t.act('P0', { type: 'start' });
+    for (let r = 1; r <= 4; r++) t.playQuietRound();
+    expect(t.s.phase).toBe('SHOWDOWN');
+    expect(t.s.showdown!.guess).toBeNull();
   });
 });
 

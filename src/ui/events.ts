@@ -109,6 +109,12 @@ export function diffEvents(prev: PublicState | null, next: PublicState, me: Play
     }
   }
 
+  if (next.phase === 'GUESS' && prev.phase !== 'GUESS' && next.guess) {
+    const t = next.guess.target;
+    const lines = t === me ? ['其他玩家要猜你的牌型', '不能透露你的手牌'] : [`猜 ${name(t)}（順位 ${next.seats.length}）的牌型`, '投票多數決，猜錯算失敗'];
+    out.push({ kind: 'conflict', title: '最終挑戰！', lines });
+  }
+
   if (next.phase === 'SHOWDOWN' && prev.phase !== 'SHOWDOWN') {
     out.push({ kind: 'result', title: '攤牌！', lines: ['公開所有手牌，從順位 1 開始比對'] });
   }

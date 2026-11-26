@@ -391,3 +391,14 @@ button.chip { border-color: var(--gold); }
 .audio-ctl { position: fixed; left: 8px; bottom: 8px; z-index: 15; display: flex; gap: 6px; }
 .audio-ctl button { padding: 4px 10px; font-size: 12px; border-radius: 999px; opacity: 0.7; }
 .audio-ctl button.on { opacity: 1; border-color: var(--gold); color: var(--gold); }
+
+/* Locked ranks in the swap phase */
+.rung.locked-rank { background: rgba(0, 0, 0, 0.18); }
+.rung .lock-mark { font-size: 12px; }
+
+/* Final challenge */
+.modes.guess { grid-template-columns: repeat(3, 1fr); }
+.modes.guess .votes { color: var(--gold); font-size: 12px; }
+.guess-result { text-align: center; padding: 8px; border-radius: var(--radius); margin-bottom: 10px; }
+.guess-result.ok { background: rgba(123, 211, 137, 0.15); }
+.guess-result.bad { background: rgba(255, 123, 123, 0.15); }

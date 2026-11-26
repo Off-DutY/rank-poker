@@ -1,5 +1,6 @@
 import type { Card } from '../core/cards';
-import { type NotifyStyle, type PlayerId, type PrivateState, type PublicState, type PublicSwapRequest, type Seat, playedRounds } from '../core/engine';
+import { type LockEnd, type NotifyStyle, type PlayerId, type PrivateState, type PublicState, type PublicSwapRequest, RULES, type Seat, lockedRanks, playedRounds } from '../core/engine';
+import { CATEGORY_NAMES } from '../core/evaluator';
 
 /** Escapes text for HTML. All player-provided text must go through it (spec 11). */
 export function esc(s: string): string {
@@ -27,7 +28,9 @@ export interface Ctx {
 const nameOf = (pub: PublicState, id: PlayerId) => esc(pub.seats.find((s) => s.id === id)?.name ?? '?');
 /** Round names by round number (1..4). */
 export const ROUND_NAMES = ['', '翻牌前', '翻牌', '轉牌', '河牌'];
-const STAGE_NAMES: Record<string, string> = { PICK: '選順位', PERSIST: '籌碼對決', SWAP: '交換順位' };
+const STAGE_NAMES: Record<string, string> = { PICK: '選順位', PERSIST: '籌碼對決', SWAP: '交換順位', GUESS: '最終挑戰' };
+/** Stepper position of the final challenge: after the last round, before the showdown (5). */
+const GUESS_STEP = 4.5;
 
 /** Seconds between 2 rows in the showdown reveal. */
 export const REVEAL_STEP_S = 0.8;
@@ -63,10 +66,11 @@ export function header(ctx: Ctx, code: string): string {
 /** Renders the hand progress: the played rounds and the showdown. Empty outside a hand. */
 function stepper(pub: PublicState): string {
   if (pub.phase === 'LOBBY') return '';
-  const current = pub.phase === 'SHOWDOWN' ? 5 : pub.round;
-  const steps = [...playedRounds(pub.settings), 5].map((n) => {
+  const current = pub.phase === 'SHOWDOWN' ? 5 : pub.phase === 'GUESS' ? GUESS_STEP : pub.round;
+  const steps = [...playedRounds(pub.settings), ...(pub.settings.finalGuess ? [GUESS_STEP] : []), 5].map((n) => {
     const cls = n < current ? 'done' : n === current ? 'now' : '';
-    return `<li class="${cls}"><span class="dot"></span><span class="txt">${n === 5 ? '攤牌' : ROUND_NAMES[n]}</span></li>`;
+    const txt = n === 5 ? '攤牌' : n === GUESS_STEP ? '最終挑戰' : ROUND_NAMES[n];
+    return `<li class="${cls}"><span class="dot"></span><span class="txt">${txt}</span></li>`;
   });
   return `<ol class="stepper">${steps.join('')}</ol>`;
 }
@@ -107,7 +111,7 @@ export function lobby(ctx: Ctx, url: string): string {
         .join('')}</select>
     </section>
     <section class="panel">
-      <h2>特殊玩法</h2>
+      <h2>特殊挑戰</h2>
       <div class="label">手牌張數（用全部手牌與公牌中最好的 5 張比大小）</div>
       <select data-act="holeCards" ${isHost ? '' : 'disabled'}>${[2, 3]
         .map((v) => `<option value="${v}"${pub.settings.holeCards === v ? ' selected' : ''}>${v} 張</option>`)
@@ -115,6 +119,14 @@ export function lobby(ctx: Ctx, url: string): string {
       <div class="label">跳過回合（該回合的牌併入下一回合一起發）</div>
       <select data-act="skipRound" ${isHost ? '' : 'disabled'}>${[0, 1, 2, 3]
         .map((v) => `<option value="${v}"${pub.settings.skipRound === v ? ' selected' : ''}>${v === 0 ? '不跳過' : `跳過第 ${v} 輪（${ROUND_NAMES[v]}）`}</option>`)
+        .join('')}</select>
+      <div class="label">鎖定順位（交換階段不能交換或挑戰，人數 ÷ 4 無條件進位：目前 ${Math.ceil(Math.max(n, 3) / 4)} 個）</div>
+      <select data-act="lockEnd" ${isHost ? '' : 'disabled'}>${LOCK_OPTIONS.map(
+        ([v, label]) => `<option value="${v}"${pub.settings.lockEnd === v ? ' selected' : ''}>${label}</option>`,
+      ).join('')}</select>
+      <div class="label">最終挑戰（攤牌前，其他玩家投票猜最大順位玩家的牌型，猜錯算失敗）</div>
+      <select data-act="finalGuess" ${isHost ? '' : 'disabled'}>${[0, 1]
+        .map((v) => `<option value="${v}"${Number(pub.settings.finalGuess) === v ? ' selected' : ''}>${v ? '開啟' : '關閉'}</option>`)
         .join('')}</select>
     </section>
     <section class="panel">
@@ -132,6 +144,12 @@ export function lobby(ctx: Ctx, url: string): string {
     </section>
     ${isHost ? `<button class="primary big" data-act="start" ${n < 3 ? 'disabled' : ''}>開始遊戲</button>` : '<p class="hint center">等待房主開始遊戲…</p>'}`;
 }
+
+const LOCK_OPTIONS: [LockEnd, string][] = [
+  ['none', '不鎖定'],
+  ['low', '鎖定最小的順位'],
+  ['high', '鎖定最大的順位'],
+];
 
 const NOTIFY_OPTIONS: [NotifyStyle, string][] = [
   ['fullscreen', '全螢幕過場：每個階段開始時蓋住畫面'],
@@ -285,16 +303,20 @@ export function swapView(ctx: Ctx, now: number): string {
   const timeLeft = pub.deadline != null && now < pub.deadline;
   const usedPair = (id: PlayerId) => swap.requests.some((r) => (r.from === me && r.to === id) || (r.from === id && r.to === me));
   const iAmBusy = busy(pub, me);
+  const locked = lockedRanks(n, pub.settings.lockEnd);
+  const iAmLocked = locked.includes(pub.ranks[me]!);
   const rows: string[] = [];
   for (let r = 1; r <= n; r++) {
     const id = pub.seats.find((s) => pub.ranks[s.id] === r)?.id;
     if (!id) continue;
-    const can = id !== me && timeLeft && !iAmBusy && !busy(pub, id) && !usedPair(id);
+    const isLocked = locked.includes(r);
+    const can = id !== me && timeLeft && !iAmBusy && !iAmLocked && !isLocked && !busy(pub, id) && !usedPair(id);
     const extra = (busy(pub, id) ? 'busy' : '') + (swap.done[id] ? ' done' : '');
     const c = can
       ? chip(ctx, id, extra, `data-act="swapReq" data-target="${id}"`, { kind: 'trail' })
       : chip(ctx, id, extra, '', { kind: 'trail' });
-    rows.push(`<div class="rung${id === me ? ' mine' : ''}"><span class="num">${r}${rankHint(r, n)}</span><span class="chips">${c}</span></div>`);
+    const lockMark = isLocked ? '<small class="lock-mark" title="鎖定順位">🔒</small>' : '';
+    rows.push(`<div class="rung${id === me ? ' mine' : ''}${isLocked ? ' locked-rank' : ''}"><span class="num">${r}${rankHint(r, n)}${lockMark}</span><span class="chips">${c}</span></div>`);
   }
   const mine = swap.requests.filter((r) => ACTIVE.has(r.status) && (r.from === me || r.to === me)).map((r) => myRequest(ctx, r));
   const log = swap.requests
@@ -304,7 +326,7 @@ export function swapView(ctx: Ctx, now: number): string {
     .join('');
   const done = swap.done[me];
   return `${countdown(pub.deadline, pub.settings.swapSeconds * 1000)}
-    <p class="hint">點選其他玩家，請求移到對方的順位。中間的玩家依序遞補。</p>
+    <p class="hint">${iAmLocked ? '你的順位已鎖定，這個交換階段不能交換或挑戰。' : '點選其他玩家，請求移到對方的順位。中間的玩家依序遞補。'}${locked.length ? ` 🔒 順位 ${locked.join('、')} 已鎖定。` : ''}</p>
     ${mine.join('')}
     <div class="ladder">${rows.join('')}</div>
     <button class="${done ? '' : 'primary '}big" data-act="done" data-done="${done ? 0 : 1}">${done ? '取消完成' : '完成交換'}</button>
@@ -424,12 +446,56 @@ export function showdownView(ctx: Ctx): string {
     .join('');
   const done = `style="--done:${revealEnd(ids.length)}s"`;
   return `<div class="result-slot" ${done}><div class="result pending">比對中…</div>
-      <div class="result final ${sd.success ? 'ok' : 'bad'}">${sd.success ? '成功！排序完全正確' : '失敗，排序有錯'}</div></div>
+      <div class="result final ${sd.success ? 'ok' : 'bad'}">${resultText(sd.orderOk, sd.guess?.correct ?? null)}</div></div>
+    ${sd.guess ? guessResultHtml(ctx) : ''}
     <div class="board">${pub.board.map(card).join('')}</div>
     <table class="showdown"><thead><tr><th>順位</th><th>玩家</th><th>手牌</th><th>牌型</th><th>正解</th><th></th></tr></thead><tbody>${rows}</tbody></table>
     <div class="after-reveal" ${done}>
     ${historyTable(ctx)}
     ${isHost ? '<div class="end-actions"><button class="primary big" data-act="next">下一局</button><button class="big" data-act="lobby">全員回到大廳</button></div>' : '<p class="hint center">等待房主決定：下一局或回到大廳…</p>'}</div>`;
+}
+
+function resultText(orderOk: boolean, guessOk: boolean | null): string {
+  if (orderOk && guessOk !== false) return guessOk ? '成功！排序正確，牌型也猜對了' : '成功！排序完全正確';
+  if (!orderOk && guessOk === false) return '失敗，排序有錯，牌型也猜錯';
+  return orderOk ? '失敗，排序正確，但牌型猜錯' : '失敗，排序有錯';
+}
+
+/** Renders the final challenge result in the showdown. It opens with the verdict, after the reveal. */
+function guessResultHtml(ctx: Ctx): string {
+  const { pub } = ctx;
+  const g = pub.showdown!.guess!;
+  const answer = g.answer == null ? '沒有共識（無票或平手）' : CATEGORY_NAMES[g.answer];
+  return `<div class="guess-result after-reveal ${g.correct ? 'ok' : 'bad'}" style="--done:${revealEnd(pub.seats.length)}s">
+    最終挑戰：猜 ${nameOf(pub, g.target)} 的牌型是 <b>${answer}</b>，實際是 <b>${CATEGORY_NAMES[g.actual]}</b> ${g.correct ? '✓' : '✗'}</div>`;
+}
+
+/**
+ * Renders the final challenge vote: the other players vote on the hand category of the player with the largest rank.
+ * Votes are public, so players can agree on 1 answer.
+ */
+export function guessView(ctx: Ctx): string {
+  const { pub, me } = ctx;
+  const g = pub.guess!;
+  const target = g.target === me ? '你' : nameOf(pub, g.target);
+  const voters = pub.seats.filter((s) => s.id !== g.target);
+  const count = (c: number) => voters.filter((s) => g.votes[s.id] === c).length;
+  const mine = g.votes[me];
+  const buttons = CATEGORY_NAMES.map((name, c) => {
+    const k = count(c);
+    const who = voters.filter((s) => g.votes[s.id] === c).map((s) => (s.id === me ? '你' : nameOf(pub, s.id))).join('、');
+    return `<button class="mode${mine === c ? ' on' : ''}" data-act="guess" data-cat="${c}" ${g.target === me ? 'disabled' : ''}>
+      <b>${name}${k ? ` <span class="votes">${k} 票</span>` : ''}</b><small>${who || '　'}</small></button>`;
+  }).join('');
+  const waiting = voters.filter((s) => g.votes[s.id] == null).map((s) => (s.id === me ? '你' : nameOf(pub, s.id)));
+  const hint =
+    g.target === me
+      ? '你是最大順位。其他玩家正在猜你的牌型，不能透露你的手牌。'
+      : `猜 <b>${target}</b>（順位 ${pub.seats.length}）的牌型。票數最多的牌型為答案，平手算猜錯。投票後仍可改票，全員投完立即攤牌。`;
+  return `${countdown(pub.deadline, RULES.guessMs)}
+    <p class="hint">${hint}</p>
+    <div class="modes guess">${buttons}</div>
+    ${waiting.length ? `<p class="hint center">尚未投票：${waiting.join('、')}</p>` : ''}`;
 }
 
 /**

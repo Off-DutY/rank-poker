@@ -58,6 +58,33 @@ describe('botAction', () => {
     expect(botAction(pub, 'bot-1', 1.5)).toEqual({ type: 'swapRespond', requestId: 1, accept: false });
   });
 
+  it('does not swap from or to a locked rank', () => {
+    const picks: [string, PlayerAction][] = (
+      [
+        ['A', 1],
+        ['bot-1', 4],
+        ['B', 2],
+        ['C', 3],
+      ] as const
+    ).flatMap(([id, rank]) => [
+      [id, { type: 'pick', rank }],
+      [id, { type: 'lock' }],
+    ]);
+    const pub = game(picks);
+    expect(botAction({ ...pub, settings: { ...pub.settings, lockEnd: 'high' } }, 'bot-1', 1)).toEqual({ type: 'swapDone', done: true });
+    expect(botAction({ ...pub, settings: { ...pub.settings, lockEnd: 'low' } }, 'bot-1', 1)).toEqual({ type: 'swapDone', done: true });
+    expect(botAction(pub, 'bot-1', 1)).toEqual({ type: 'swapRequest', targetId: 'A' });
+  });
+
+  it('in the final challenge, waits for the humans and follows their top vote', () => {
+    const pub = game();
+    const guess = (votes: Record<string, number>) => ({ ...pub, phase: 'GUESS' as const, guess: { target: 'C', votes } });
+    expect(botAction(guess({ A: 3 }), 'bot-1', 2)).toBeNull();
+    expect(botAction(guess({ A: 3, B: 3 }), 'bot-1', 2)).toEqual({ type: 'guessVote', category: 3 });
+    expect(botAction(guess({ A: 3, B: 3, 'bot-1': 3 }), 'bot-1', 2)).toBeNull();
+    expect(botAction({ ...guess({}), guess: { target: 'bot-1', votes: {} } }, 'bot-1', 2)).toBeNull();
+  });
+
   it('in a conflict, bids more when its estimate is above the contested rank', () => {
     const picks: [string, PlayerAction][] = (
       [

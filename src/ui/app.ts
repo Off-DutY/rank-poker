@@ -1,10 +1,10 @@
 import QRCode from 'qrcode';
-import { type NotifyStyle, type PublicState, RULES } from '../core/engine';
+import { type LockEnd, type NotifyStyle, type PublicState, RULES } from '../core/engine';
 import type { Session } from '../net/session';
 import { boardBurst, captureChips, createAnnouncer, dealCards, flashChips, hypeChip, playChipMoves, pop } from './effects';
 import { type Announcement, diffEvents } from './events';
 import { setMusic, unlockAudio } from './sound';
-import { type Ctx, betLabelHtml, cards, handRankPanel, header, historyTable, lobby, rankChangeHtml, persistPrompt, persistWindow, pickLadder, showdownView, swapView } from './render';
+import { type Ctx, betLabelHtml, cards, guessView, handRankPanel, header, historyTable, lobby, rankChangeHtml, persistPrompt, persistWindow, pickLadder, showdownView, swapView } from './render';
 import { audioPrefs, roomUrl, saveAudioPrefs } from './room';
 
 const REJECT_TEXT: Record<string, string> = {
@@ -131,7 +131,9 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
         ? lobby(ctx, url)
         : v.pub.phase === 'SHOWDOWN'
           ? showdownView(ctx)
-          : cards(ctx) + changes + (v.pub.phase === 'SWAP' ? swapView(ctx, now) : pickLadder(ctx)) + historyTable(ctx);
+          : v.pub.phase === 'GUESS'
+            ? cards(ctx) + guessView(ctx) + historyTable(ctx)
+            : cards(ctx) + changes + (v.pub.phase === 'SWAP' ? swapView(ctx, now) : pickLadder(ctx)) + historyTable(ctx);
     const before = captureChips(main);
     if (set(main, body)) playEffects(shown, before);
     main.classList.toggle('intro', inIntro);
@@ -272,6 +274,9 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
       case 'pick':
         session.act({ type: 'pick', rank: Number(d.rank) });
         break;
+      case 'guess':
+        session.act({ type: 'guessVote', category: Number(d.cat) });
+        break;
       case 'swapReq':
         session.act({ type: 'swapRequest', targetId: d.target! });
         break;
@@ -304,6 +309,8 @@ export function mountGame(root: HTMLElement, session: Session, code: string): vo
     const act = el.dataset.act;
     if (act === 'swapSeconds' || act === 'introSeconds' || act === 'holeCards' || act === 'skipRound') session.act({ type: 'settings', settings: { [act]: Number(el.value) } });
     if (act === 'notifyStyle') session.act({ type: 'settings', settings: { notifyStyle: el.value as NotifyStyle } });
+    if (act === 'lockEnd') session.act({ type: 'settings', settings: { lockEnd: el.value as LockEnd } });
+    if (act === 'finalGuess') session.act({ type: 'settings', settings: { finalGuess: el.value === '1' } });
   });
 
   const notifyOptions = (pub: PublicState) => ({
