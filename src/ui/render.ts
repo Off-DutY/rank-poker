@@ -139,7 +139,7 @@ export function lobby(ctx: Ctx, url: string): string {
       <select data-act="introSeconds" ${isHost ? '' : 'disabled'}>${[0, 2, 3, 5]
         .map((v) => `<option value="${v}"${pub.settings.introSeconds === v ? ' selected' : ''}>${v === 0 ? '不暫停（提示與倒數同時開始）' : `${v} 秒`}</option>`)
         .join('')}</select>
-      <p class="hint">音效、音樂與震動由每位玩家自己用左下角的按鈕開關。震動只在支援的手機有效（iPhone 不支援）。</p>
+      <p class="hint">音效、音樂與震動由每位玩家自己在右側「設定」開關。</p>
       <button data-act="preview">在我的裝置預覽提示</button>
     </section>
     ${isHost ? `<button class="primary big" data-act="start" ${n < 3 ? 'disabled' : ''}>開始遊戲</button>` : '<p class="hint center">等待房主開始遊戲…</p>'}`;
@@ -614,13 +614,18 @@ const HAND_RANKS: [name: string, example: Card[], note: string][] = [
   ['高牌', ['Ac', 'Jd', '8s', '5h', '3c'], '以上都不是，比最大的單張'],
 ];
 
-/** Renders the side panel with the hand categories. Players open and close it at any time. */
-export function handRankPanel(): string {
+/**
+ * Renders the side settings panel: the own audio switches (filled by the app into `#audio`) and the hand categories.
+ * Players open and close it at any time.
+ */
+export function settingsPanel(): string {
   const rows = HAND_RANKS.map(
     ([name, ex, note], i) =>
       `<li><div class="hr-head"><b>${HAND_RANKS.length - i}. ${name}</b><span class="hr-cards">${ex.map(card).join('')}</span></div><small>${note}</small></li>`,
   ).join('');
-  return `<button class="handref-tab" data-act="handref" aria-expanded="false" aria-controls="handref-body">牌型</button>
-    <div class="handref-body" id="handref-body"><div class="handref-top"><b>牌型大小（大 → 小）</b><button class="handref-close" data-act="handref" aria-label="收合">✕</button></div>
+  return `<button class="handref-tab" data-act="handref" aria-expanded="false" aria-controls="handref-body">設定</button>
+    <div class="handref-body" id="handref-body"><div class="handref-top"><b>設定</b><button class="handref-close" data-act="handref" aria-label="收合">✕</button></div>
+    <div id="audio" class="audio-ctl"></div><p class="hint">只影響你的裝置。震動只在支援的手機有效（iPhone 不支援）。</p>
+    <div class="handref-sub"><b>牌型大小（大 → 小）</b></div>
     <ol>${rows}</ol><p class="hint">同牌型時比點數；用全部手牌與公牌中最好的 5 張。</p></div>`;
 }

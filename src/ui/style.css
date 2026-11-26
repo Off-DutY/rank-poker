@@ -368,6 +368,7 @@ button.chip { border-color: var(--gold); }
 .handref-body { width: min(320px, calc(100vw - 50px)); max-height: 80dvh; overflow-y: auto; padding: 10px 12px; background: #0b2c21; border: 1px solid var(--line); border-right: none; box-shadow: -6px 0 24px rgba(0, 0, 0, 0.5); }
 .handref-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
 .handref-close { padding: 2px 8px; }
+.handref-sub { margin: 10px 0 2px; padding-top: 8px; border-top: 1px solid var(--line); }
 .handref ol { list-style: none; margin: 0; padding: 0; }
 .handref li { padding: 6px 0; border-bottom: 1px solid var(--line); }
 .handref .hr-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
@@ -388,7 +389,7 @@ button.chip { border-color: var(--gold); }
 @keyframes hypeFloat { from { opacity: 1; transform: translate(-50%, -50%) scale(0.6); } 30% { transform: translate(-50%, -110%) scale(1.2); } to { opacity: 0; transform: translate(-50%, -260%) scale(1); } }
 
 /* Own audio switches: fixed at the bottom left, set per player. */
-.audio-ctl { position: fixed; left: 8px; bottom: 8px; z-index: 15; display: flex; gap: 6px; }
+.audio-ctl { display: flex; flex-wrap: wrap; gap: 6px; }
 .audio-ctl button { padding: 4px 10px; font-size: 12px; border-radius: 999px; opacity: 0.7; }
 .audio-ctl button.on { opacity: 1; border-color: var(--gold); color: var(--gold); }
 

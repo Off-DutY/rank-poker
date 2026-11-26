@@ -4,7 +4,7 @@ import type { Session } from '../net/session';
 import { boardBurst, captureChips, createAnnouncer, dealCards, flashChips, hypeChip, playChipMoves, pop } from './effects';
 import { type Announcement, diffEvents } from './events';
 import { setMusic, unlockAudio } from './sound';
-import { type Ctx, betLabelHtml, cards, guessView, handRankPanel, header, historyTable, lobby, rankChangeHtml, persistPrompt, persistWindow, pickLadder, showdownView, swapView } from './render';
+import { type Ctx, betLabelHtml, cards, guessView, header, historyTable, lobby, rankChangeHtml, persistPrompt, settingsPanel, persistWindow, pickLadder, showdownView, swapView } from './render';
 import { audioPrefs, roomUrl, saveAudioPrefs } from './room';
 
 const REJECT_TEXT: Record<string, string> = {
@@ -32,11 +32,11 @@ const REFRESH_MS = 100;
  */
 export function mountGame(root: HTMLElement, session: Session, code: string): void {
   root.innerHTML =
-    '<header id="hdr"></header><div id="ticker"></div><main id="main"></main><div id="announce" aria-live="polite"></div><div id="overlay"></div><aside id="handref" class="handref"></aside><div id="audio" class="audio-ctl"></div>';
+    '<header id="hdr"></header><div id="ticker"></div><main id="main"></main><div id="announce" aria-live="polite"></div><div id="overlay"></div><aside id="handref" class="handref"></aside>';
   const handref = root.querySelector<HTMLElement>('#handref')!;
-  handref.innerHTML = handRankPanel();
+  handref.innerHTML = settingsPanel();
   const hdr = root.querySelector<HTMLElement>('#hdr')!;
-  // Sound, music and vibration belong to this player only, so they live outside the room settings.
+  // Sound, music and vibration belong to this player only, so they live in the side panel, not in the room settings.
   const audio = audioPrefs();
   const audioCtl = root.querySelector<HTMLElement>('#audio')!;
   const renderAudio = () => {
